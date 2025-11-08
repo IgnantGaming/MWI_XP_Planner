@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>XP Planner — Primary & Charm (Target-Aware)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { font-family: system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 2rem; max-width: 1100px; }
+    h1 { margin: 0 0 .5rem 0; }
+    .muted { color:#666; }
+    .small { font-size:.9rem; }
+    .card { border:1px solid #ddd; border-radius:12px; padding:1rem 1.25rem; box-shadow:0 1px 4px rgba(0,0,0,.04); margin-top:1rem; }
+    .grid { display:grid; gap:1rem; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+    label { display:block; font-size:.9rem; margin-bottom:.35rem; color:#333; }
+    input, select { width:100%; padding:.6rem .7rem; border:1px solid #ccc; border-radius:8px; display:block; }
+    button { padding:.65rem 1rem; border-radius:10px; border:0; cursor:pointer; }
+    .primary-btn { background:#2d6cdf; color:#fff; }
+    .row { display:flex; gap:.75rem; align-items:center; flex-wrap:wrap; }
+    .out  { font-size:1.05rem; }
+    .err  { color:#c33; }
+    .warn { color:#b60; }
+    .good { color:#0b7; }
+    code  { background:#f6f6f6; padding:.15rem .35rem; border-radius:6px; }
+    .banner { background:#fff8e1; border:1px solid #f0d98a; border-radius:10px; padding:.75rem 1rem; display:none; margin-top:1rem; }
+    .two-col { display:grid; gap:1.25rem; grid-template-columns:1fr; }
+    @media (min-width: 900px) { .two-col { grid-template-columns:1fr 1fr; } }
+    .section-title { font-weight:600; margin-bottom:.5rem; }
+    .panel-focus { outline:2px solid #2d6cdf; outline-offset:2px; border-radius:10px; padding:.25rem; }
+    hr { border:0; border-top:1px solid #eee; margin:.75rem 0; }
+  </style>
+</head>
+<body>
+  <h1>XP Planner — Primary & Charm</h1>
+  <p class="muted small">
+    Enter your Primary and Charm info separately (level, XP needed, XP/hour). Uses <code>experience.json</code> thresholds.
+    “Target Applies To” decides which side’s goal sets the cross-projection.
+  </p>
+
+  <!-- CORS-safe local file fallback -->
+  <div id="fileBanner" class="banner">
+    <strong>Local file mode:</strong> Your browser blocked <code>fetch()</code> for <code>experience.json</code>.  
+    Choose the file manually: <input id="fileInput" type="file" accept="application/json,.json" />
+    <span id="fileStatus" class="muted" style="margin-left:.5rem;"></span>
+  </div>
+
+  <!-- Primary / Charm inputs -->
+  <div class="card two-col">
+    <div id="primaryPanel">
+      <div class="section-title">Primary</div>
+      <div class="grid">
+        <div>
+          <label for="primaryType">Class</label>
+          <select id="primaryType">
+            <option>Magic</option>
+            <option>Melee</option>
+            <option>Range</option>
+          </select>
+        </div>
+        <div>
+          <label for="primaryLevel">Current Level</label>
+          <input id="primaryLevel" type="number" min="1" step="1" value="116" />
+        </div>
+        <div>
+          <label for="primaryRemaining">XP Needed to Next Level</label>
+          <input id="primaryRemaining" type="number" min="0" step="1" value="207571" />
+        </div>
+        <div>
+          <label for="primaryRate">XP per Hour (Primary)</label>
+          <input id="primaryRate" type="number" min="0" step="1" value="44100" />
+        </div>
+      </div>
+    </div>
+
+    <div id="charmPanel">
+      <div class="section-title">Charm</div>
+      <div class="grid">
+        <div>
+          <label for="charmType">Charm</label>
+          <select id="charmType">
+            <option>Stamina</option>
+            <option>Intelligence</option>
+            <option>Attack</option>
+            <option>Defense</option>
+          </select>
+        </div>
+        <div>
+          <label for="charmLevel">Current Level</label>
+          <input id="charmLevel" type="number" min="1" step="1" value="104" />
+        </div>
+        <div>
+          <label for="charmRemaining">XP Needed to Next Level</label>
+          <input id="charmRemaining" type="number" min="0" step="1" value="742054" />
+        </div>
+        <div>
+          <label for="charmRate">XP per Hour (Charm)</label>
+          <input id="charmRate" type="number" min="0" step="1" value="106600" />
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Global controls -->
+  <div class="card">
+    <div class="grid">
+      <div>
+        <label for="simHours">Simulate Hours</label>
+        <input id="simHours" type="number" min="0" step="0.1" value="24" />
+      </div>
+      <div>
+        <label for="targetLevel">Target Level</label>
+        <input id="targetLevel" type="number" min="1" step="1" value="120" />
+      </div>
+      <div>
+        <label for="targetApplies">Target Applies To</label>
+        <select id="targetApplies">
+          <option value="primary" selected>Primary</option>
+          <option value="charm">Charm</option>
+        </select>
+      </div>
+    </div>
+    <div class="row" style="margin-top:.9rem;">
+      <button class="primary-btn" id="calcBtn">Calculate</button>
+      <button id="resetBtn">Reset</button>
+      <span id="status" class="muted"></span>
+    </div>
+  </div>
+
+  <!-- Outputs -->
+  <div class="card two-col">
+    <div>
+      <div class="out"><strong>Primary — Time to next level:</strong> <span id="p_timeNext">—</span></div>
+      <div class="muted" id="p_details">Enter Primary rate and remaining XP.</div>
+      <hr/>
+      <div class="out"><strong>Primary — Projection after <span id="p_hoursEcho">—</span> hours:</strong></div>
+      <div class="muted" id="p_projection">Enter hours and click Calculate.</div>
+      <hr/>
+      <div class="out"><strong>Primary — Time to Target:</strong> <span id="p_timeTarget">—</span></div>
+      <div class="muted" id="p_targetDetails">Set Target Level and click Calculate.</div>
+      <div class="muted" id="p_crossNote"></div>
+    </div>
+    <div>
+      <div class="out"><strong>Charm — Time to next level:</strong> <span id="c_timeNext">—</span></div>
+      <div class="muted" id="c_details">Enter Charm rate and remaining XP.</div>
+      <hr/>
+      <div class="out"><strong>Charm — Projection after <span id="c_hoursEcho">—</span> hours:</strong></div>
+      <div class="muted" id="c_projection">Enter hours and click Calculate.</div>
+      <hr/>
+      <div class="out"><strong>Charm — Time to Target:</strong> <span id="c_timeTarget">—</span></div>
+      <div class="muted" id="c_targetDetails">Set Target Level and click Calculate.</div>
+      <div class="muted" id="c_crossNote"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="out"><strong>From table (<code>experience.json</code>):</strong></div>
+    <div class="muted" id="tableInfo">Waiting for file load…</div>
+  </div>
+
+  <script>
+    const els = {
+      // primary
+      primaryType: document.getElementById('primaryType'),
+      primaryLevel: document.getElementById('primaryLevel'),
+      primaryRemaining: document.getElementById('primaryRemaining'),
+      primaryRate: document.getElementById('primaryRate'),
+      // charm
+      charmType: document.getElementById('charmType'),
+      charmLevel: document.getElementById('charmLevel'),
+      charmRemaining: document.getElementById('charmRemaining'),
+      charmRate: document.getElementById('charmRate'),
+      // global
+      simHours: document.getElementById('simHours'),
+      targetLevel: document.getElementById('targetLevel'),
+      targetApplies: document.getElementById('targetApplies'),
+      calcBtn: document.getElementById('calcBtn'),
+      resetBtn: document.getElementById('resetBtn'),
+      status: document.getElementById('status'),
+      tableInfo: document.getElementById('tableInfo'),
+      // outputs — primary
+      p_timeNext: document.getElementById('p_timeNext'),
+      p_details: document.getElementById('p_details'),
+      p_projection: document.getElementById('p_projection'),
+      p_hoursEcho: document.getElementById('p_hoursEcho'),
+      p_timeTarget: document.getElementById('p_timeTarget'),
+      p_targetDetails: document.getElementById('p_targetDetails'),
+      p_crossNote: document.getElementById('p_crossNote'),
+      primaryPanel: document.getElementById('primaryPanel'),
+      // outputs — charm
+      c_timeNext: document.getElementById('c_timeNext'),
+      c_details: document.getElementById('c_details'),
+      c_projection: document.getElementById('c_projection'),
+      c_hoursEcho: document.getElementById('c_hoursEcho'),
+      c_timeTarget: document.getElementById('c_timeTarget'),
+      c_targetDetails: document.getElementById('c_targetDetails'),
+      c_crossNote: document.getElementById('c_crossNote'),
+      charmPanel: document.getElementById('charmPanel'),
+      // file
+      fileBanner: document.getElementById('fileBanner'),
+      fileInput: document.getElementById('fileInput'),
+      fileStatus: document.getElementById('fileStatus'),
+    };
+
+    let xpTable = null;
+    let sortedLevels = [];
+
+    // ---- Load experience.json (with local-file fallback) ----
+    function setTable(data, source='fetch') {
+      xpTable = data;
+      sortedLevels = Object.keys(xpTable).map(k => parseInt(k,10)).filter(Number.isInteger).sort((a,b)=>a-b);
+      els.status.textContent = `experience.json loaded (${source})`;
+      els.tableInfo.textContent = 'Enter values above to see per-level deltas.';
+    }
+    fetch('experience.json')
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(data => setTable(data, 'fetch'))
+      .catch(() => {
+        els.fileBanner.style.display = 'block';
+        els.fileStatus.textContent = 'Choose your experience.json to load it locally.';
+      });
+    els.fileInput?.addEventListener('change', e => {
+      const file = e.target.files?.[0]; if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try { setTable(JSON.parse(reader.result), 'file'); els.fileStatus.textContent = `Loaded: ${file.name}`; }
+        catch(err){ els.fileStatus.textContent = `Invalid JSON: ${err.message}`; }
+      };
+      reader.onerror = () => els.fileStatus.textContent = 'Failed to read file.';
+      reader.readAsText(file);
+    });
+
+    // ---- Helpers ----
+    function formatDuration(hoursFloat) {
+      if (!isFinite(hoursFloat) || hoursFloat < 0) return '—';
+      const totalSeconds = Math.round(hoursFloat * 3600);
+      const d = Math.floor(totalSeconds / 86400);
+      const h = Math.floor((totalSeconds % 86400) / 3600);
+      const m = Math.floor((totalSeconds % 3600) / 60);
+      const s = totalSeconds % 60;
+      const parts = [];
+      if (d) parts.push(d + 'd');
+      if (h) parts.push(h + 'h');
+      if (m) parts.push(m + 'm');
+      if (s || parts.length === 0) parts.push(s + 's');
+      return parts.join(' ');
+    }
+    const req = lvl => xpTable?.[String(lvl)];
+    function delta(lvl){
+      const a = req(lvl), b = req(lvl+1);
+      if (typeof a !== 'number' || typeof b !== 'number') return null;
+      return Math.max(0, b - a);
+    }
+    function currentTotalXP(level, remaining) {
+      const d = delta(level);
+      const base = req(level);
+      if (typeof base !== 'number' || d == null) return null;
+      const progress = Math.max(0, d - remaining);
+      return base + progress;
+    }
+    function findLevelForTotalXP(totalXP) {
+      if (!xpTable || !sortedLevels.length) return null;
+      let lo=0, hi=sortedLevels.length-1, ans=sortedLevels[0];
+      while (lo<=hi) {
+        const mid=(lo+hi)>>1, lvl=sortedLevels[mid], need=req(lvl);
+        if (need<=totalXP){ ans=lvl; lo=mid+1; } else { hi=mid-1; }
+      }
+      return ans;
+    }
+    function projectAfterHours(level, remaining, rate, hours) {
+      const cur = currentTotalXP(level, remaining);
+      if (cur == null) return null;
+      const gained = Math.max(0, rate) * Math.max(0, hours);
+      const tot = cur + gained;
+      const pl = findLevelForTotalXP(tot);
+      if (pl == null) return null;
+      const nextReq = req(pl + 1);
+      const remToNext = (typeof nextReq === 'number') ? Math.max(0, Math.ceil(nextReq - tot)) : null;
+      return { projectedLevel: pl, totalXP: tot, remainingToNext: remToNext, gained };
+    }
+    function hoursToTarget(level, remaining, rate, targetLevel) {
+      const cur = currentTotalXP(level, remaining);
+      const targetTotal = req(targetLevel);
+      if (cur == null || typeof targetTotal !== 'number' || rate <= 0) return null;
+      const xpNeeded = Math.max(0, targetTotal - cur);
+      return { hours: xpNeeded / rate, xpNeeded };
+    }
+
+    // ---- Side calculators (Primary/Charm) ----
+    function calcSide(side) {
+      const isP = side === 'p';
+      const level = parseInt(isP ? els.primaryLevel.value : els.charmLevel.value, 10);
+      const remaining = parseFloat(isP ? els.primaryRemaining.value : els.charmRemaining.value);
+      const rate = parseFloat(isP ? els.primaryRate.value : els.charmRate.value);
+      const simHrs = parseFloat(els.simHours.value);
+
+      const outTimeNext = isP ? els.p_timeNext : els.c_timeNext;
+      const details = isP ? els.p_details : els.c_details;
+      const proj = isP ? els.p_projection : els.c_projection;
+      const hoursEcho = isP ? els.p_hoursEcho : els.c_hoursEcho;
+      const timeTarget = isP ? els.p_timeTarget : els.c_timeTarget;
+      const targetDetails = isP ? els.p_targetDetails : els.c_targetDetails;
+
+      // Validation
+      if (!Number.isInteger(level) || level < 1) {
+        outTimeNext.textContent = '—';
+        details.innerHTML = '<span class="err">Enter a valid level (>= 1).</span>';
+        proj.innerHTML = '<span class="warn">Projection requires a valid level.</span>';
+        timeTarget.textContent = '—';
+        targetDetails.innerHTML = '<span class="warn">Target requires a valid level.</span>';
+        return { ok:false };
+      }
+      if (!isFinite(remaining) || remaining < 0) {
+        outTimeNext.textContent = '—';
+        details.innerHTML = '<span class="err">Enter a non-negative “XP Needed”.</span>';
+        proj.innerHTML = '<span class="warn">Projection requires a valid “XP Needed”.</span>';
+        timeTarget.textContent = '—';
+        targetDetails.innerHTML = '<span class="warn">Target requires a valid “XP Needed”.</span>';
+        return { ok:false };
+      }
+      if (!isFinite(rate) || rate <= 0) {
+        outTimeNext.textContent = '—';
+        details.innerHTML = '<span class="warn">Enter XP/hour > 0.</span>';
+        proj.innerHTML = '<span class="warn">Projection requires XP/hour > 0.</span>';
+        timeTarget.textContent = '—';
+        targetDetails.innerHTML = '<span class="warn">Target requires XP/hour > 0.</span>';
+        return { ok:false };
+      }
+
+      // Time to next
+      const hNext = remaining / rate;
+      outTimeNext.textContent = formatDuration(hNext);
+      details.innerHTML = `
+        At <strong>${rate.toLocaleString()}</strong> XP/hour, it takes
+        <strong>${hNext.toFixed(2)}</strong> hours (${formatDuration(hNext)})
+        to gain <strong>${remaining.toLocaleString()}</strong> XP.
+      `;
+
+      if (!xpTable || delta(level) == null) {
+        proj.innerHTML = '<span class="warn">Projection requires experience.json with contiguous levels.</span>';
+        timeTarget.textContent = '—';
+        targetDetails.innerHTML = '<span class="warn">Target requires experience.json.</span>';
+        return { ok:false };
+      }
+
+      // Projection after N hours
+      hoursEcho.textContent = (isFinite(simHrs) && simHrs >= 0) ? simHrs : '—';
+      if (isFinite(simHrs) && simHrs >= 0) {
+        const p = projectAfterHours(level, remaining, rate, simHrs);
+        if (!p) {
+          proj.innerHTML = '<span class="err">Could not project (table missing).</span>';
+        } else {
+          const { projectedLevel, gained, remainingToNext } = p;
+          const levelsGained = Math.max(0, projectedLevel - level);
+          proj.innerHTML = `
+            After <strong>${simHrs}</strong> hour(s) at <strong>${rate.toLocaleString()}</strong> XP/hour:<br/>
+            • Projected level: <strong>${projectedLevel}</strong> (${levelsGained} level${levelsGained === 1 ? '' : 's'} gained)<br/>
+            • Total XP gained: <strong>${Math.round(gained).toLocaleString()}</strong><br/>
+            ${remainingToNext != null
+              ? `• XP remaining to level ${projectedLevel + 1}: <strong>${remainingToNext.toLocaleString()}</strong>`
+              : '• You are at or beyond the highest level in the table.'}
+          `;
+        }
+      } else {
+        proj.innerHTML = '<span class="warn">Enter a non-negative number of hours to simulate.</span>';
+      }
+
+      // Own time-to-target (not cross)
+      const target = parseInt(els.targetLevel.value, 10);
+      const h2t = Number.isInteger(target) ? hoursToTarget(level, remaining, rate, target) : null;
+      if (!Number.isInteger(target)) {
+        timeTarget.textContent = '—';
+        targetDetails.innerHTML = '<span class="warn">Enter a target level.</span>';
+      } else if (!h2t) {
+        timeTarget.textContent = '—';
+        if (target <= level) {
+          targetDetails.innerHTML = `Already level <strong>${level}</strong> (target: ${target}).`;
+        } else {
+          targetDetails.innerHTML = '<span class="warn">Cannot compute time to target (check table & XP/hour).</span>';
+        }
+      } else {
+        timeTarget.textContent = formatDuration(h2t.hours);
+        targetDetails.innerHTML = `
+          From your current progress in level <strong>${level}</strong>, you need
+          <strong>${h2t.xpNeeded.toLocaleString()}</strong> XP to reach level <strong>${target}</strong>.<br/>
+          At <strong>${rate.toLocaleString()}</strong> XP/hour, that’s
+          <strong>${h2t.hours.toFixed(2)}</strong> hours (${formatDuration(h2t.hours)}).
+        `;
+      }
+
+      return { ok:true, level, remaining, rate, hNext, h2t };
+    }
+
+    function calculate() {
+      // Cleanup focus outlines
+      els.primaryPanel.classList.remove('panel-focus');
+      els.charmPanel.classList.remove('panel-focus');
+      els.p_crossNote.textContent = '';
+      els.c_crossNote.textContent = '';
+
+      // Quick per-level deltas summary
+      if (xpTable) {
+        const pl = parseInt(els.primaryLevel.value, 10);
+        const cl = parseInt(els.charmLevel.value, 10);
+        const pd = Number.isInteger(pl) ? delta(pl) : null;
+        const cd = Number.isInteger(cl) ? delta(cl) : null;
+        let html = '';
+        if (Number.isInteger(pl) && pd != null) {
+          html += `Primary next level (${pl+1}) requires <strong>${pd.toLocaleString()}</strong> XP.<br/>`;
+        }
+        if (Number.isInteger(cl) && cd != null) {
+          html += `Charm next level (${cl+1}) requires <strong>${cd.toLocaleString()}</strong> XP.`;
+        }
+        els.tableInfo.innerHTML = html || 'Enter levels to see per-level deltas.';
+      } else {
+        els.tableInfo.textContent = 'experience.json not loaded.';
+      }
+
+      // Compute each side
+      const P = calcSide('p');
+      const C = calcSide('c');
+
+      // Cross-target logic
+      const applies = els.targetApplies.value; // 'primary' or 'charm'
+      const target = parseInt(els.targetLevel.value, 10);
+
+      if (!xpTable || !Number.isInteger(target)) {
+        // nothing extra to do
+      } else if (applies === 'primary' && P?.ok && P?.h2t?.hours != null) {
+        // Primary’s goal sets the time; project Charm at those hours
+        els.primaryPanel.classList.add('panel-focus');
+        const hoursForPrimaryGoal = P.h2t.hours;
+        const charmL = parseInt(els.charmLevel.value, 10);
+        const charmRem = parseFloat(els.charmRemaining.value);
+        const charmRate = parseFloat(els.charmRate.value);
+        const projC = projectAfterHours(charmL, charmRem, charmRate, hoursForPrimaryGoal);
+        if (projC) {
+          const { projectedLevel, remainingToNext } = projC;
+          els.c_crossNote.innerHTML =
+            `By the time <strong>Primary</strong> reaches level <strong>${target}</strong> (${formatDuration(hoursForPrimaryGoal)}), ` +
+            `your <strong>Charm</strong> will be about level <strong>${projectedLevel}</strong>` +
+            (remainingToNext != null ? ` (then <strong>${remainingToNext.toLocaleString()}</strong> XP to the next level).` : '.');
+        } else {
+          els.c_crossNote.innerHTML = `<span class="warn">Couldn’t project Charm at Primary’s target time (check Charm inputs).</span>`;
+        }
+      } else if (applies === 'charm' && C?.ok && C?.h2t?.hours != null) {
+        // Charm’s goal sets the time; project Primary at those hours
+        els.charmPanel.classList.add('panel-focus');
+        const hoursForCharmGoal = C.h2t.hours;
+        const pL = parseInt(els.primaryLevel.value, 10);
+        const pRem = parseFloat(els.primaryRemaining.value);
+        const pRate = parseFloat(els.primaryRate.value);
+        const projP = projectAfterHours(pL, pRem, pRate, hoursForCharmGoal);
+        if (projP) {
+          const { projectedLevel, remainingToNext } = projP;
+          els.p_crossNote.innerHTML =
+            `By the time <strong>Charm</strong> reaches level <strong>${target}</strong> (${formatDuration(hoursForCharmGoal)}), ` +
+            `your <strong>Primary</strong> will be about level <strong>${projectedLevel}</strong>` +
+            (remainingToNext != null ? ` (then <strong>${remainingToNext.toLocaleString()}</strong> XP to the next level).` : '.');
+        } else {
+          els.p_crossNote.innerHTML = `<span class="warn">Couldn’t project Primary at Charm’s target time (check Primary inputs).</span>`;
+        }
+      }
+    }
+
+    els.calcBtn.addEventListener('click', calculate);
+    [
+      'primaryLevel','primaryRemaining','primaryRate',
+      'charmLevel','charmRemaining','charmRate',
+      'simHours','targetLevel','targetApplies'
+    ].forEach(id => document.getElementById(id).addEventListener('change', calculate));
+    [
+      'primaryLevel','primaryRemaining','primaryRate',
+      'charmLevel','charmRemaining','charmRate',
+      'simHours','targetLevel'
+    ].forEach(id => document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') calculate(); }));
+
+    els.resetBtn.addEventListener('click', () => {
+      els.primaryType.value = 'Magic';
+      els.primaryLevel.value = 116;
+      els.primaryRemaining.value = 207571;
+      els.primaryRate.value = 44100;
+      els.charmType.value = 'Stamina';
+      els.charmLevel.value = 104;
+      els.charmRemaining.value = 742054;
+      els.charmRate.value = 106600;
+      els.simHours.value = 24;
+      els.targetLevel.value = 120;
+      els.targetApplies.value = 'primary';
+      [
+        els.p_timeNext, els.c_timeNext, els.p_timeTarget, els.c_timeTarget
+      ].forEach(el => el.textContent = '—');
+      els.p_details.textContent = 'Enter Primary rate and remaining XP.';
+      els.c_details.textContent = 'Enter Charm rate and remaining XP.';
+      els.p_projection.textContent = 'Enter hours and click Calculate.';
+      els.c_projection.textContent = 'Enter hours and click Calculate.';
+      els.p_hoursEcho.textContent = '—';
+      els.c_hoursEcho.textContent = '—';
+      els.p_targetDetails.textContent = 'Set Target Level and click Calculate.';
+      els.c_targetDetails.textContent = 'Set Target Level and click Calculate.';
+      els.p_crossNote.textContent = '';
+      els.c_crossNote.textContent = '';
+      els.primaryPanel.classList.remove('panel-focus');
+      els.charmPanel.classList.remove('panel-focus');
+      els.tableInfo.textContent = 'Waiting for file load…';
+    });
+
+    // Calculate once after load
+    window.addEventListener('load', () => setTimeout(calculate, 50));
+  </script>
+</body>
+</html>
