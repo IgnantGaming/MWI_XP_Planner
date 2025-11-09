@@ -2,7 +2,7 @@
 <html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8" />
-  <title>XP Planner — Primary & Charm (Target-Aware)</title>
+  <title>MWI XP Planner — Primary & Charm (Target-Aware)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="styles.css" />
   <script defer src="app.js"></script>
@@ -10,13 +10,39 @@
 <body>
   <div class="row header">
     <div>
-      <h1>XP Planner — Primary & Charm</h1>
+      <h1>MWI XP Planner — Primary & Charm</h1>
       <p class="muted small">
         Enter your Primary and Charm info separately (level, XP needed, XP/hour). Uses <code>experience.json</code> thresholds.
         “Target Applies To” decides which side’s goal sets the cross-projection.
       </p>
     </div>
     <button id="themeBtn" class="theme-toggle" title="Toggle theme">🌙 Dark</button>
+  </div>
+
+  <!-- Imported skills (from Tampermonkey or bookmarklet via #cs=...) -->
+  <div class="card" id="skillsCard" style="display:none;">
+    <div class="row" style="justify-content:space-between;align-items:center;">
+      <div>
+        <div class="out"><strong>Player Skills (imported)</strong></div>
+        <div class="small muted" id="skillsMeta"></div>
+      </div>
+      <div class="row small muted">
+        <span id="skillsStatus"></span>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="grid-table" id="skillsTable" aria-label="Imported combat skills">
+        <thead>
+          <tr>
+            <th>Skill</th>
+            <th style="text-align:right;">Level</th>
+            <th style="text-align:right;">Total XP</th>
+            <th style="text-align:right;">XP to Next</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
   </div>
 
   <!-- CORS-safe local file fallback -->
