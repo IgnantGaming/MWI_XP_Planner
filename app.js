@@ -342,15 +342,15 @@ els.calcBtn.addEventListener('click', calculate);
 
 els.resetBtn.addEventListener('click', () => {
   els.primaryType.value = 'Magic';
-  els.primaryLevel.value = 116;
-  els.primaryRemaining.value = 207571;
-  els.primaryRate.value = 44100;
+  els.primaryLevel.value = 1;
+  els.primaryRemaining.value = 0;
+  els.primaryRate.value = 0;
   els.charmType.value = 'Stamina';
-  els.charmLevel.value = 104;
-  els.charmRemaining.value = 742054;
-  els.charmRate.value = 106600;
+  els.charmLevel.value = 1;
+  els.charmRemaining.value = 0;
+  els.charmRate.value = 0;
   els.simHours.value = 24;
-  els.targetLevel.value = 120;
+  els.targetLevel.value = 2;
   els.targetApplies.value = 'primary';
   [
     els.p_timeNext, els.c_timeNext, els.p_timeTarget, els.c_timeTarget
