@@ -11,17 +11,30 @@
   function systemPrefersDark() {
     return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
   }
-
   const saved = localStorage.getItem(THEME_KEY);
   const start = saved || (systemPrefersDark() ? 'dark' : 'light');
   apply(start);
-
   btn.addEventListener('click', () => {
     const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
     localStorage.setItem(THEME_KEY, next);
     apply(next);
   });
 })();
+
+/* ---------- Import constants & state ---------- */
+const HRID_TO_NAME = {
+  '/skills/melee': 'Melee',
+  '/skills/stamina': 'Stamina',
+  '/skills/defense': 'Defense',
+  '/skills/intelligence': 'Intelligence',
+  '/skills/ranged': 'Range',
+  '/skills/attack': 'Attack',
+  '/skills/magic': 'Magic',
+};
+const NAME_TO_HRID = Object.fromEntries(Object.entries(HRID_TO_NAME).map(([h,n]) => [n, h]));
+let importedSkills = null;
+let importedMeta = null;
+const STORAGE_IMPORT_KEY = 'planner:cs_import';
 
 // ---------- DOM ----------
 const els = {
@@ -66,6 +79,11 @@ const els = {
   fileInput: document.getElementById('fileInput'),
   fileStatus: document.getElementById('fileStatus'),
 };
+// Imported skills UI
+const skillsCard = document.getElementById('skillsCard');
+const skillsMeta = document.getElementById('skillsMeta');
+const skillsStatus = document.getElementById('skillsStatus');
+const skillsTable = document.getElementById('skillsTable')?.querySelector('tbody');
 
 let xpTable = null;
 let sortedLevels = [];
@@ -79,6 +97,12 @@ function setTable(data, source='fetch') {
     .sort((a,b)=>a-b);
   els.status.textContent = `experience.json loaded (${source})`;
   els.tableInfo.textContent = 'Enter values above to see per-level deltas.';
+
+  // If imports exist, we can render now that we can compute XP-to-next
+  if (importedSkills) {
+    renderImportedTable();
+    autofillFromImported();
+  }
 }
 fetch('experience.json')
   .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
@@ -87,7 +111,6 @@ fetch('experience.json')
     els.fileBanner.style.display = 'block';
     els.fileStatus.textContent = 'Choose your experience.json to load it locally.';
   });
-
 els.fileInput?.addEventListener('change', e => {
   const file = e.target.files?.[0]; if (!file) return;
   const reader = new FileReader();
@@ -98,6 +121,43 @@ els.fileInput?.addEventListener('change', e => {
   reader.onerror = () => els.fileStatus.textContent = 'Failed to read file.';
   reader.readAsText(file);
 });
+
+// ---------- Import from URL hash (#cs=...) or localStorage ----------
+function getHashParam(k) {
+  const h = location.hash || '';
+  const q = new URLSearchParams(h.startsWith('#') ? h.slice(1) : h);
+  return q.get(k);
+}
+function tryImportFromHash() {
+  const cs = getHashParam('cs');
+  if (!cs) return false;
+  try {
+    const text = decodeURIComponent(cs);
+    const arr = JSON.parse(text);
+    if (!Array.isArray(arr)) throw new Error('Expected an array for #cs');
+    importedSkills = arr;
+    importedMeta = { source: 'hash' };
+    localStorage.setItem(STORAGE_IMPORT_KEY, JSON.stringify({ skills: importedSkills, meta: importedMeta }));
+    history.replaceState(null, '', location.pathname);
+    return true;
+  } catch (e) {
+    console.warn('Failed to import from #cs:', e);
+    return false;
+  }
+}
+function loadImportFromStorage() {
+  const raw = localStorage.getItem(STORAGE_IMPORT_KEY);
+  if (!raw) return false;
+  try {
+    const obj = JSON.parse(raw);
+    if (obj && Array.isArray(obj.skills)) {
+      importedSkills = obj.skills;
+      importedMeta = obj.meta || { source: 'storage' };
+      return true;
+    }
+  } catch {}
+  return false;
+}
 
 // ---------- Helpers ----------
 function formatDuration(hoursFloat) {
@@ -153,6 +213,72 @@ function hoursToTarget(level, remaining, rate, targetLevel) {
   if (cur == null || typeof targetTotal !== 'number' || rate <= 0) return null;
   const xpNeeded = Math.max(0, targetTotal - cur);
   return { hours: xpNeeded / rate, xpNeeded };
+}
+
+// ---------- Imported skills → table + autofill ----------
+function computeRemainingToNext(totalXP, level) {
+  if (!xpTable) return null;
+  const next = req(level + 1);
+  if (typeof next !== 'number') return null;
+  return Math.max(0, Math.ceil(next - totalXP));
+}
+function buildDisplayRows() {
+  if (!Array.isArray(importedSkills)) return [];
+  const wantedHrids = new Set(Object.keys(HRID_TO_NAME));
+  const rows = importedSkills
+    .filter(s => wantedHrids.has(s.skillHrid))
+    .map(s => ({
+      name: HRID_TO_NAME[s.skillHrid],
+      hrid: s.skillHrid,
+      level: s.level,
+      xp: s.experience
+    }))
+    .sort((a, b) => {
+      const order = ['Melee','Stamina','Defense','Intelligence','Range','Attack','Magic'];
+      return order.indexOf(a.name) - order.indexOf(b.name);
+    });
+  return rows;
+}
+function renderImportedTable() {
+  if (!skillsTable || !skillsCard) return;
+  if (!importedSkills) { skillsCard.style.display = 'none'; return; }
+  const rows = buildDisplayRows();
+  if (!rows.length) { skillsCard.style.display = 'none'; return; }
+  skillsTable.innerHTML = '';
+  for (const r of rows) {
+    const tr = document.createElement('tr');
+    const remain = (xpTable) ? computeRemainingToNext(r.xp, r.level) : null;
+    tr.innerHTML = `
+      <td>${r.name}</td>
+      <td style="text-align:right;">${r.level}</td>
+      <td style="text-align:right;">${Math.round(r.xp).toLocaleString()}</td>
+      <td style="text-align:right;">${remain == null ? '—' : remain.toLocaleString()}</td>
+    `;
+    skillsTable.appendChild(tr);
+  }
+  skillsCard.style.display = '';
+  const src = importedMeta?.source || 'unknown';
+  skillsMeta.textContent = `Loaded from ${src}. Change the dropdowns below to auto-fill from these values.`;
+  skillsStatus.textContent = xpTable ? '' : 'Waiting for experience.json to compute XP-to-next…';
+}
+function autofillFromImported() {
+  if (!importedSkills || !xpTable) return;
+  function setFor(side) {
+    const isP = side === 'p';
+    const typeSel = isP ? els.primaryType : els.charmType;
+    const levelInp = isP ? els.primaryLevel : els.charmLevel;
+    const remainInp = isP ? els.primaryRemaining : els.charmRemaining;
+    const name = typeSel.value;
+    const hrid = NAME_TO_HRID[name] || null;
+    if (!hrid) return;
+    const found = importedSkills.find(s => s.skillHrid === hrid);
+    if (!found) return;
+    levelInp.value = found.level;
+    const rem = computeRemainingToNext(found.experience, found.level);
+    if (rem != null) remainInp.value = rem;
+  }
+  setFor('p');
+  setFor('c');
 }
 
 // ---------- Side calculators ----------
@@ -286,7 +412,7 @@ function calculate() {
   const P = calcSide('p');
   const C = calcSide('c');
 
-  const applies = els.targetApplies.value; // 'primary' or 'charm'
+  const applies = els.targetApplies.value;
   const target = parseInt(els.targetLevel.value, 10);
   if (!xpTable || !Number.isInteger(target)) return;
 
@@ -339,16 +465,24 @@ els.calcBtn.addEventListener('click', calculate);
 ].forEach(id => document.getElementById(id).addEventListener('keydown', e => {
   if (e.key === 'Enter') calculate();
 }));
+['primaryType','charmType'].forEach(id => {
+  document.getElementById(id).addEventListener('change', () => {
+    if (importedSkills && xpTable) {
+      autofillFromImported();
+      calculate();
+    }
+  });
+});
 
 els.resetBtn.addEventListener('click', () => {
   els.primaryType.value = 'Magic';
   els.primaryLevel.value = 1;
-  els.primaryRemaining.value = 0;
-  els.primaryRate.value = 0;
+  els.primaryRemaining.value = 1;
+  els.primaryRate.value = 1;
   els.charmType.value = 'Stamina';
   els.charmLevel.value = 1;
-  els.charmRemaining.value = 0;
-  els.charmRate.value = 0;
+  els.charmRemaining.value = 1;
+  els.charmRate.value = 1;
   els.simHours.value = 24;
   els.targetLevel.value = 2;
   els.targetApplies.value = 'primary';
@@ -370,5 +504,15 @@ els.resetBtn.addEventListener('click', () => {
   els.tableInfo.textContent = 'Waiting for file load…';
 });
 
+// Try to import data from hash or prior session before first calculate
+const didHashImport = tryImportFromHash();
+if (!didHashImport) loadImportFromStorage();
+
 // Calculate once after load
-window.addEventListener('load', () => setTimeout(calculate, 50));
+window.addEventListener('load', () => {
+  if (importedSkills && xpTable) {
+    renderImportedTable();
+    autofillFromImported();
+  }
+  setTimeout(calculate, 50);
+});
