@@ -59,7 +59,7 @@
   --good: #4fd1a5;
 }
 
-/* ---------- BASE STYLES (use variables) ---------- */
+/* ---------- BASE STYLES ---------- */
 :root { font-family: system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
 * { box-sizing: border-box; }
 html, body { background: var(--bg); color: var(--text); }
@@ -104,6 +104,14 @@ code  { background:var(--kbd-bg); padding:.15rem .35rem; border-radius:6px; }
 .section-title { font-weight:600; margin-bottom:.5rem; }
 .panel-focus { outline:2px solid var(--primary); outline-offset:2px; border-radius:10px; padding:.25rem; }
 hr { border:0; border-top:1px solid var(--border-strong); margin:.75rem 0; }
+
+/* Table styles */
+.table-wrap { overflow:auto; margin-top:.5rem; }
+.grid-table { width:100%; border-collapse: collapse; font-size:.95rem; }
+.grid-table th, .grid-table td { padding:.5rem .6rem; border-top:1px solid var(--border-strong); }
+.grid-table thead th { text-align:left; border-top:0; color:var(--muted); font-weight:600; }
+.grid-table tbody tr:hover { background: rgba(0,0,0,.03); }
+[data-theme="dark"] .grid-table tbody tr:hover { background: rgba(255,255,255,.03); }
 
 /* Theme toggle button */
 .theme-toggle {
