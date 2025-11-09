@@ -34,8 +34,9 @@ Install
 - Or drag-drop the file into the Tampermonkey dashboard to import.
 
 Usage on milkywayidle.com
-- Use “Save MWI → Tag” to store a snapshot of combat skills.
-- Click “Open Tag in Planner” to open the planner with the data embedded via `#cs=...`.
+- Buttons now appear at the top-right of the screen (to avoid covering inventory).
+- Click “Save MWI → Tag” to store a snapshot of your combat skills (you name the tag).
+- After saving, the button switches to “Open <tag> in Planner” for 5 minutes; click it to open the planner with data embedded via `#cs=...`. After 5 minutes it reverts to the Save button.
 
 Planner behavior
 - A “Player Skills (imported)” table appears under the header.

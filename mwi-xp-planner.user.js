@@ -91,10 +91,37 @@
       .mwixp-fab { position: fixed; right: 16px; z-index: 999999; border: 0; cursor: pointer;
                    padding: 9px 12px; border-radius: 10px; color: #fff; font: 13px/1 system-ui, sans-serif;
                    box-shadow: 0 2px 10px rgba(0,0,0,.25); }
-      #mwixp-save { bottom: 66px; background: #4f46e5; }
-      #mwixp-open { bottom: 16px; background: #2d6cdf; }
+      /* Move buttons to top-right to avoid covering inventory */
+      #mwixp-save { top: 16px; background: #4f46e5; }
+      #mwixp-open { top: 60px; background: #2d6cdf; }
       .mwixp-fab:hover { filter: brightness(1.06); }
     `);
+
+    // Temporary action state: after saving, show Open button for 5 minutes
+    const ACTION_STATE_KEY = 'mwixp:lastActionState'; // { mode: 'open'|'save', tag?: string, until?: number }
+    let mwixpRevertTimerId = null;
+    function getActionState() { return GM_getValue(ACTION_STATE_KEY, { mode: 'save' }); }
+    function setActionState(state) { GM_setValue(ACTION_STATE_KEY, state); }
+    function clearActionState() { GM_setValue(ACTION_STATE_KEY, { mode: 'save' }); }
+    function updateActionButtonsFromState() {
+      const saveBtn = document.getElementById('mwixp-save');
+      const openBtn = document.getElementById('mwixp-open');
+      if (!saveBtn || !openBtn) return;
+      if (mwixpRevertTimerId) { clearTimeout(mwixpRevertTimerId); mwixpRevertTimerId = null; }
+      const st = getActionState();
+      if (st.mode === 'open' && st.tag && typeof st.until === 'number' && Date.now() < st.until) {
+        saveBtn.style.display = 'none';
+        openBtn.style.display = '';
+        openBtn.textContent = `Open ${st.tag} in Planner`;
+        const ms = Math.max(0, st.until - Date.now());
+        mwixpRevertTimerId = setTimeout(() => { clearActionState(); updateActionButtonsFromState(); }, ms);
+      } else {
+        clearActionState();
+        saveBtn.style.display = '';
+        openBtn.style.display = 'none';
+        openBtn.textContent = 'Open Tag in Planner';
+      }
+    }
 
     function ensureButtons(payload) {
       if (!payload) return;
@@ -110,10 +137,12 @@
         const b = document.createElement('button');
         b.id = 'mwixp-open'; b.className = 'mwixp-fab';
         b.textContent = 'Open Tag in Planner';
-        b.title = 'Open a saved tag in the planner';
+        b.title = 'Open the last saved tag in the planner';
+        b.style.display = 'none';
         b.onclick = () => doOpenTag();
         document.body.appendChild(b);
       }
+      updateActionButtonsFromState();
     }
 
     function doSaveSnapshot(payload) {
@@ -124,15 +153,20 @@
       if (!tag) return;
       setSnapshot(tag, payload);
       alert(`Saved snapshot: "${tag}"`);
+      setActionState({ mode: 'open', tag, until: Date.now() + 5 * 60 * 1000 });
+      updateActionButtonsFromState();
     }
     function doOpenTag() {
-      const tags = listTags();
-      if (!tags.length) { alert('No saved tags yet. Save one first.'); return; }
-      const pick = prompt('Enter a tag to open:\n' + tags.join('\n'), tags[0]);
-      if (!pick) return;
-      const snap = getSnapshot(pick);
+      const st = getActionState();
+      let tag = (st && st.mode === 'open') ? st.tag : null;
+      if (!tag) {
+        const tags = listTags();
+        if (!tags.length) { alert('No saved tags yet. Save one first.'); return; }
+        tag = prompt('Enter a tag to open:\n' + tags.join('\n'), tags[0]);
+        if (!tag) return;
+      }
+      const snap = getSnapshot(tag);
       if (!snap) { alert('Tag not found.'); return; }
-      // Open planner with embedded data so it works without depending on cross-domain GM storage
       const url = buildPlannerUrlWithCs(snap.wanted);
       window.open(url, '_blank');
     }
@@ -163,6 +197,7 @@
     }
 
     ensureButtons(payload);
+    updateActionButtonsFromState();
 
     if (payload) {
       log('Snapshot candidate:', {
