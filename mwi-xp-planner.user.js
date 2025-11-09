@@ -2,7 +2,7 @@
 // @name         MWI → XP Planner
 // @author       IgnantGaming
 // @namespace    ignantgaming.mwi
-// @version      1.1.1
+// @version      1.1.3
 // @description  Save combat-skill snapshots with tags; open them on your GitHub planner.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -88,12 +88,12 @@
 
   if (onMWI) {
     GM_addStyle(`
-      .mwixp-fab { position: fixed; right: 16px; z-index: 999999; border: 0; cursor: pointer;
-                   padding: 9px 12px; border-radius: 10px; color: #fff; font: 13px/1 system-ui, sans-serif;
-                   box-shadow: 0 2px 10px rgba(0,0,0,.25); }
-      /* Move buttons to top-right to avoid covering inventory */
-      #mwixp-save { top: 16px; background: #4f46e5; }
-      #mwixp-open { top: 60px; background: #2d6cdf; }
+      .mwixp-fab { position: fixed; z-index: 999999; border: 0; cursor: pointer;
+                   padding: 4px 8px; border-radius: 8px; color: #fff; font: 12px/1 system-ui, sans-serif;
+                   box-shadow: 0 1px 6px rgba(0,0,0,.18); text-align: center; min-width: 160px; height: 26px; }
+      /* Move buttons further left from the right edge; overlap to consume the same space */
+      #mwixp-save { top: 6px; right: 20%; background: #4f46e5; }
+      #mwixp-open { top: 6px; right: 20%; background: #2d6cdf; }
       .mwixp-fab:hover { filter: brightness(1.06); }
     `);
 
