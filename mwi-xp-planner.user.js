@@ -1,15 +1,22 @@
 // ==UserScript==
-// @name         MWI → XP Planner (Tagged Snapshots)
+// @name         MWI → XP Planner
+// @author       IgnantGaming
 // @namespace    ignantgaming.mwi
 // @version      1.1.0
 // @description  Save combat-skill snapshots with tags; open them on your GitHub planner.
 // @match        https://www.milkywayidle.com/*
+// @match        https://test.milkywayidle.com/*
+// @match        https://www.milkywayidlecn.com/*
+// @match        https://test.milkywayidlecn.com/*
 // @match        https://ignantgaming.github.io/MWI_XP_Planner/*
 // @grant        GM_addStyle
 // @grant        GM_registerMenuCommand
 // @grant        GM_setClipboard
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @license      CC-BY-NC-SA-4.0
+// @downloadURL https://update.greasyfork.org/scripts/555252/MWI%20%E2%86%92%20XP%20Planner.user.js
+// @updateURL https://update.greasyfork.org/scripts/555252/MWI%20%E2%86%92%20XP%20Planner.meta.js
 // ==/UserScript==
 
 (function () {
@@ -125,7 +132,8 @@
       if (!pick) return;
       const snap = getSnapshot(pick);
       if (!snap) { alert('Tag not found.'); return; }
-      const url = PLANNER_URL + '#tag=' + encodeURIComponent(pick); // planner script rewrites #tag → #cs
+      // Open planner with embedded data so it works without depending on cross-domain GM storage
+      const url = buildPlannerUrlWithCs(snap.wanted);
       window.open(url, '_blank');
     }
 

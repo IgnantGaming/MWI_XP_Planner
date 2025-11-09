@@ -261,24 +261,25 @@ function renderImportedTable() {
   skillsMeta.textContent = `Loaded from ${src}. Change the dropdowns below to auto-fill from these values.`;
   skillsStatus.textContent = xpTable ? '' : 'Waiting for experience.json to compute XP-to-next…';
 }
+function applyImportedToSide(side) {
+  if (!importedSkills || !xpTable) return false;
+  const isP = side === 'p';
+  const typeSel = isP ? els.primaryType : els.charmType;
+  const levelInp = isP ? els.primaryLevel : els.charmLevel;
+  const remainInp = isP ? els.primaryRemaining : els.charmRemaining;
+  const name = typeSel.value;
+  const hrid = NAME_TO_HRID[name] || null;
+  if (!hrid) return false;
+  const found = importedSkills.find(s => s.skillHrid === hrid);
+  if (!found) return false;
+  levelInp.value = found.level;
+  const rem = computeRemainingToNext(found.experience, found.level);
+  if (rem != null) remainInp.value = rem;
+  return true;
+}
 function autofillFromImported() {
-  if (!importedSkills || !xpTable) return;
-  function setFor(side) {
-    const isP = side === 'p';
-    const typeSel = isP ? els.primaryType : els.charmType;
-    const levelInp = isP ? els.primaryLevel : els.charmLevel;
-    const remainInp = isP ? els.primaryRemaining : els.charmRemaining;
-    const name = typeSel.value;
-    const hrid = NAME_TO_HRID[name] || null;
-    if (!hrid) return;
-    const found = importedSkills.find(s => s.skillHrid === hrid);
-    if (!found) return;
-    levelInp.value = found.level;
-    const rem = computeRemainingToNext(found.experience, found.level);
-    if (rem != null) remainInp.value = rem;
-  }
-  setFor('p');
-  setFor('c');
+  applyImportedToSide('p');
+  applyImportedToSide('c');
 }
 
 // ---------- Side calculators ----------
@@ -472,6 +473,22 @@ els.calcBtn.addEventListener('click', calculate);
       calculate();
     }
   });
+});
+
+// Import buttons: apply imported snapshot to the current class selections
+document.getElementById('primaryImportBtn')?.addEventListener('click', () => {
+  if (!importedSkills) { alert('No imported skills found. Open planner via the userscript or load #cs.'); return; }
+  if (!xpTable) { alert('experience.json not loaded yet.'); return; }
+  const ok = applyImportedToSide('p');
+  if (!ok) { alert('Could not match imported skill to current Primary selection.'); return; }
+  calculate();
+});
+document.getElementById('charmImportBtn')?.addEventListener('click', () => {
+  if (!importedSkills) { alert('No imported skills found. Open planner via the userscript or load #cs.'); return; }
+  if (!xpTable) { alert('experience.json not loaded yet.'); return; }
+  const ok = applyImportedToSide('c');
+  if (!ok) { alert('Could not match imported skill to current Charm selection.'); return; }
+  calculate();
 });
 
 els.resetBtn.addEventListener('click', () => {
