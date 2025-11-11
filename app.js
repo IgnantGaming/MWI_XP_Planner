@@ -1,5 +1,7 @@
 // ---------- THEME ----------
 const APP_VERSION = '1.2.0';
+const USERSCRIPT_GREASYFORK_META = 'https://update.greasyfork.org/scripts/555252/MWI%20%E2%86%92%20XP%20Planner.meta.js';
+const USERSCRIPT_GREASYFORK_PAGE = 'https://greasyfork.org/en/scripts/555252-mwi-xp-planner';
 
 (function themeInit() {
   const THEME_KEY = 'xp-planner-theme';
@@ -110,7 +112,10 @@ function setTable(data, source='fetch') {
   }
   // footer versions
   const av = document.getElementById('appVer'); if (av) av.textContent = APP_VERSION;
-  const uv = document.getElementById('usVer'); if (uv) uv.textContent = importedMeta?.scriptVersion || uv.textContent;
+  const uv = document.getElementById('usVer'); if (uv) {
+    if (importedMeta?.scriptVersion) uv.textContent = importedMeta.scriptVersion;
+    else fetchUserscriptVersion().then(v => { if (v && uv.textContent === 'n/a') uv.textContent = v; }).catch(() => {});
+  }
 }
 fetch('experience.json')
   .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
@@ -267,6 +272,35 @@ function applyImportedEquipment() {
     if (exists) els.charmType.value = charmT;
   }
 }
+
+// Footer helpers: attempt to show userscript version even without import meta
+async function fetchUserscriptVersion() {
+  try {
+    const r = await fetch(USERSCRIPT_GREASYFORK_META, { mode: 'cors' });
+    if (r.ok) {
+      const t = await r.text();
+      const m = t.match(/^\s*\/\/\s*@version\s+(.+)$/m);
+      if (m && m[1]) return m[1].trim();
+    }
+  } catch {}
+  try {
+    const r2 = await fetch(USERSCRIPT_GREASYFORK_PAGE, { mode: 'cors' });
+    if (r2.ok) {
+      const h = await r2.text();
+      const m2 = h.match(/class=\"script-show-version\"[^>]*>\s*<span>([^<]+)<\/span>/i);
+      if (m2 && m2[1]) return m2[1].trim();
+    }
+  } catch {}
+  return null;
+}
+
+// Initialize footer eagerly in case experience.json fetch is delayed
+(function initFooterVersionsEarly(){
+  const av = document.getElementById('appVer'); if (av) av.textContent = APP_VERSION;
+  const uv = document.getElementById('usVer'); if (uv && uv.textContent === 'n/a') {
+    fetchUserscriptVersion().then(v => { if (v) uv.textContent = v; }).catch(() => {});
+  }
+})();
 
 // ---------- Helpers ----------
 function formatDuration(hoursFloat) {

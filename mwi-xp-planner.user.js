@@ -2,7 +2,7 @@
 // @name         MWI → XP Planner
 // @author       IgnantGaming
 // @namespace    ignantgaming.mwi
-// @version      1.1.7
+// @version      1.1.8
 // @description  Save combat-skill snapshots with tags; open them on your GitHub planner.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -22,7 +22,7 @@
 (function () {
   'use strict';
   // Keep in sync with userscript header @version
-  const USERSCRIPT_VERSION = '1.1.7';
+  const USERSCRIPT_VERSION = '1.1.8';
 
   /** ---------------- Config ---------------- */
   const PLANNER_URL = 'https://ignantgaming.github.io/MWI_XP_Planner/';
@@ -138,30 +138,34 @@
     return { ...mwixpRates };
   }
   function buildPlannerUrlWithExport(arr, rates) {
-    // Prefer embedding rates inside the #cs payload so imports from file/hash carry them.
-    if (rates && Number.isFinite(rates.staminaPerHour) && Number.isFinite(rates.primaryPerHour)) {
-      const payload = {
-        skills: arr,
-        meta: {
-          rates: {
-            cType: 'Stamina',
-            cRate: Math.max(0, Math.round(rates.staminaPerHour)),
-            pRate: Math.max(0, Math.round(rates.primaryPerHour)),
-            total: Number.isFinite(rates.totalPerHour) ? Math.max(0, Math.round(rates.totalPerHour)) : undefined,
-            attack: perSkillRates.attack,
-            defense: perSkillRates.defense,
-            intelligence: perSkillRates.intelligence,
-            stamina: perSkillRates.stamina,
-            magic: perSkillRates.magic,
-            ranged: perSkillRates.ranged,
-            melee: perSkillRates.melee
-          }
-        }
-      };
-      return PLANNER_URL + '#cs=' + encodeURIComponent(JSON.stringify(payload));
+    // Always embed an object payload so equipment is carried even when rates are missing.
+    const payload = {
+      skills: arr,
+      meta: {
+        scriptVersion: USERSCRIPT_VERSION,
+        equipment: getEquipmentMeta(),
+        rates: {}
+      }
+    };
+    // Fill rates if available (partial OK)
+    if (rates) {
+      const r = {};
+      if (Number.isFinite(rates.staminaPerHour)) r.cRate = Math.max(0, Math.round(rates.staminaPerHour));
+      if (Number.isFinite(rates.primaryPerHour)) r.pRate = Math.max(0, Math.round(rates.primaryPerHour));
+      if (Number.isFinite(rates.totalPerHour)) r.total = Math.max(0, Math.round(rates.totalPerHour));
+      // Default charm type when we have stamina rate
+      if (r.cRate != null) r.cType = 'Stamina';
+      // Per-skill map captured from battle
+      r.attack = perSkillRates.attack;
+      r.defense = perSkillRates.defense;
+      r.intelligence = perSkillRates.intelligence;
+      r.stamina = perSkillRates.stamina;
+      r.magic = perSkillRates.magic;
+      r.ranged = perSkillRates.ranged;
+      r.melee = perSkillRates.melee;
+      payload.meta.rates = r;
     }
-    // Fallback: skills array only (no rates)
-    return buildPlannerUrlWithCs(arr);
+    return PLANNER_URL + '#cs=' + encodeURIComponent(JSON.stringify(payload));
   }
 
   // Equipment extraction from init_character_data
@@ -369,22 +373,32 @@
         alert(`No saved snapshot for tag "${tag}". Open the planner from milkywayidle.com after saving.`);
         return;
       }
+      // Always embed object payload with meta (equipment + any available rates)
+      const live = getLiveRates();
+      const payload = {
+        skills: snap.wanted,
+        meta: {
+          scriptVersion: USERSCRIPT_VERSION,
+          equipment: getEquipmentMeta(),
+          rates: {}
+        }
+      };
       const r = snap?.meta?.rates;
-      // Embed rates inside #cs payload if present
-      let payload = snap.wanted;
-      if (r && Number.isFinite(r.staminaPerHour) && Number.isFinite(r.primaryPerHour)) {
-        payload = {
-          skills: snap.wanted,
-          meta: {
-            rates: {
-              cType: 'Stamina',
-              cRate: Math.max(0, Math.round(r.staminaPerHour)),
-              pRate: Math.max(0, Math.round(r.primaryPerHour))
-            },
-            scriptVersion: USERSCRIPT_VERSION,
-            equipment: getEquipmentMeta()
-          }
-        };
+      const src = (r && (r.staminaPerHour != null || r.primaryPerHour != null || r.totalPerHour != null)) ? r : live;
+      if (src) {
+        const rr = {};
+        if (Number.isFinite(src.staminaPerHour)) rr.cRate = Math.max(0, Math.round(src.staminaPerHour));
+        if (Number.isFinite(src.primaryPerHour)) rr.pRate = Math.max(0, Math.round(src.primaryPerHour));
+        if (Number.isFinite(src.totalPerHour)) rr.total = Math.max(0, Math.round(src.totalPerHour));
+        if (rr.cRate != null) rr.cType = 'Stamina';
+        rr.attack = perSkillRates.attack;
+        rr.defense = perSkillRates.defense;
+        rr.intelligence = perSkillRates.intelligence;
+        rr.stamina = perSkillRates.stamina;
+        rr.magic = perSkillRates.magic;
+        rr.ranged = perSkillRates.ranged;
+        rr.melee = perSkillRates.melee;
+        payload.meta.rates = rr;
       }
       const newHash = '#cs=' + encodeURIComponent(JSON.stringify(payload));
       if (location.hash !== newHash) {
