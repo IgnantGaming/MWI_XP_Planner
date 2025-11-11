@@ -1,5 +1,5 @@
 // ---------- THEME ----------
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.2.2';
 const USERSCRIPT_GREASYFORK_META = 'https://update.greasyfork.org/scripts/555252/MWI%20%E2%86%92%20XP%20Planner.meta.js';
 const USERSCRIPT_GREASYFORK_PAGE = 'https://greasyfork.org/en/scripts/555252-mwi-xp-planner';
 

@@ -2,7 +2,7 @@
 // @name         MWI → XP Planner
 // @author       IgnantGaming
 // @namespace    ignantgaming.mwi
-// @version      1.1.9
+// @version      1.1.10
 // @description  Save combat-skill snapshots with tags; open them on your GitHub planner.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -22,7 +22,7 @@
 (function () {
   'use strict';
   // Keep in sync with userscript header @version
-  const USERSCRIPT_VERSION = '1.1.9';
+  const USERSCRIPT_VERSION = '1.1.10';
 
   /** ---------------- Config ---------------- */
   const PLANNER_URL = 'https://ignantgaming.github.io/MWI_XP_Planner/';
