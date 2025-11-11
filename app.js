@@ -102,12 +102,12 @@ function setTable(data, source='fetch') {
   els.status.textContent = `experience.json loaded (${source})`;
   els.tableInfo.textContent = 'Enter values above to see per-level deltas.';
 
-  // If imports exist, we can render now that we can compute XP-to-next
+  // If imports exist, render and then apply equipment/rates before autofill
   if (importedSkills) {
     renderImportedTable();
-    autofillFromImported();
-    applyImportedRates();
     applyImportedEquipment();
+    applyImportedRates();
+    autofillFromImported();
     calculate();
   }
   // footer versions
@@ -682,6 +682,8 @@ if (!didHashImport) loadImportFromStorage();
 window.addEventListener('load', () => {
   if (importedSkills && xpTable) {
     renderImportedTable();
+    applyImportedEquipment();
+    applyImportedRates();
     autofillFromImported();
   }
   setTimeout(calculate, 50);

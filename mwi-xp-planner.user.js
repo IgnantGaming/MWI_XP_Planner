@@ -2,7 +2,7 @@
 // @name         MWI → XP Planner
 // @author       IgnantGaming
 // @namespace    ignantgaming.mwi
-// @version      1.1.10
+// @version      1.1.11
 // @description  Save combat-skill snapshots with tags; open them on your GitHub planner.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -22,7 +22,7 @@
 (function () {
   'use strict';
   // Keep in sync with userscript header @version
-  const USERSCRIPT_VERSION = '1.1.10';
+  const USERSCRIPT_VERSION = '1.1.11';
 
   /** ---------------- Config ---------------- */
   const PLANNER_URL = 'https://ignantgaming.github.io/MWI_XP_Planner/';
@@ -126,14 +126,76 @@
   function hookWebSocketOnce() {
     if (wsHooked || typeof WebSocket === 'undefined') return;
     wsHooked = true;
-    const _add = WebSocket.prototype.addEventListener;
-    WebSocket.prototype.addEventListener = function(type, listener, options) {
-      if (type === 'message') {
-        const wrapped = (ev) => { try { if (typeof ev.data === 'string') { const o = JSON.parse(ev.data); if (o?.type === 'new_battle') updateRatesFromBattle(o); if (o?.type === 'init_character_data') currentCharId = o?.character?.id || currentCharId; } } catch {} return listener.call(this, ev); };
-        return _add.call(this, type, wrapped, options);
-      }
-      return _add.call(this, type, listener, options);
+    const NativeWS = WebSocket;
+
+    function processObj(o) {
+      try {
+        if (!o) return;
+        if (o.type === 'init_character_data') {
+          currentCharId = o?.character?.id || currentCharId;
+        }
+        if (o.combatStartTime && Array.isArray(o.players)) {
+          updateRatesFromBattle(o);
+        }
+        if (o.type === 'new_battle' || o.type === 'battle_update' || o.type === 'battle_result') {
+          if (o.players && o.combatStartTime) updateRatesFromBattle(o);
+        }
+      } catch {}
+    }
+
+    function handleMessageEvent(ev) {
+      try {
+        const d = ev && ev.data;
+        if (!d) return;
+        if (typeof d === 'string') {
+          try { processObj(JSON.parse(d)); } catch {}
+        } else if (typeof Blob !== 'undefined' && d instanceof Blob && d.text) {
+          d.text().then(t => { try { processObj(JSON.parse(t)); } catch {} });
+        } else if (d instanceof ArrayBuffer) {
+          try { const t = new TextDecoder('utf-8').decode(new Uint8Array(d)); processObj(JSON.parse(t)); } catch {}
+        }
+      } catch {}
+    }
+
+    function installOn(ws) {
+      if (!ws) return;
+      const origAdd = ws.addEventListener.bind(ws);
+      try { origAdd('message', handleMessageEvent); } catch {}
+      ws.addEventListener = function(type, listener, options) {
+        if (type === 'message') {
+          const wrapped = function(ev) { try { handleMessageEvent(ev); } catch {} return listener && listener.call(this, ev); };
+          return origAdd(type, wrapped, options);
+        }
+        return origAdd(type, listener, options);
+      };
+      let userHandler = null;
+      try {
+        Object.defineProperty(ws, 'onmessage', {
+          configurable: true,
+          enumerable: true,
+          get() { return userHandler; },
+          set(fn) {
+            userHandler = fn;
+            if (typeof fn === 'function') {
+              const wrapped = function(ev) { try { handleMessageEvent(ev); } catch {} return fn.call(ws, ev); };
+              origAdd('message', wrapped);
+            }
+          }
+        });
+      } catch {}
+    }
+
+    WebSocket = function(...args) {
+      const ws = new NativeWS(...args);
+      try { installOn(ws); } catch {}
+      return ws;
     };
+    WebSocket.prototype = NativeWS.prototype;
+    WebSocket.prototype.constructor = WebSocket;
+
+    try {
+      if (window.__MWI_LAST_WS && window.__MWI_LAST_WS instanceof NativeWS) installOn(window.__MWI_LAST_WS);
+    } catch {}
   }
   function getLiveRates() {
     hookWebSocketOnce();
@@ -237,7 +299,11 @@
   }
 
   function hasFiniteRates(r) {
-    return !!(r && Number.isFinite(r.staminaPerHour) && Number.isFinite(r.primaryPerHour));
+    return !!(r && (
+      Number.isFinite(r.staminaPerHour) ||
+      Number.isFinite(r.primaryPerHour) ||
+      Number.isFinite(r.totalPerHour)
+    ));
   }
 
   /** ---------------- Site-specific behaviors ---------------- */
