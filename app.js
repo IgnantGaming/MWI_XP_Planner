@@ -1,4 +1,6 @@
 // ---------- THEME ----------
+const APP_VERSION = '1.2.0';
+
 (function themeInit() {
   const THEME_KEY = 'xp-planner-theme';
   const btn = document.getElementById('themeBtn');
@@ -103,8 +105,12 @@ function setTable(data, source='fetch') {
     renderImportedTable();
     autofillFromImported();
     applyImportedRates();
+    applyImportedEquipment();
     calculate();
   }
+  // footer versions
+  const av = document.getElementById('appVer'); if (av) av.textContent = APP_VERSION;
+  const uv = document.getElementById('usVer'); if (uv) uv.textContent = importedMeta?.scriptVersion || uv.textContent;
 }
 fetch('experience.json')
   .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
@@ -155,7 +161,7 @@ function tryImportFromHash() {
       if (typeof rates.cType === 'string') norm.cType = rates.cType;
       if (rates.cRate != null && !isNaN(parseFloat(rates.cRate))) norm.cRate = parseFloat(rates.cRate);
       if (rates.pRate != null && !isNaN(parseFloat(rates.pRate))) norm.pRate = parseFloat(rates.pRate);
-      importedMeta = { source: 'hash', rates: norm };
+      importedMeta = { source: 'hash', rates: norm, scriptVersion: parsed?.meta?.scriptVersion };
     } else {
       throw new Error('Unexpected #cs payload');
     }
@@ -185,6 +191,7 @@ function loadImportFromStorage() {
 function applyImportedRates() {
   const rates = importedMeta?.rates || {};
   if (!rates) return;
+  // 1) Apply explicit charm type and rate if present
   if (rates.cType && els.charmType) {
     // set only if it exists in the dropdown
     const opt = Array.from(els.charmType.options || []).some(o => o.value === rates.cType);
@@ -195,6 +202,69 @@ function applyImportedRates() {
   }
   if (rates.pRate != null && !isNaN(parseFloat(rates.pRate))) {
     els.primaryRate.value = String(parseFloat(rates.pRate));
+  }
+
+  // 2) Flexible payloads: support named skill rates (total, stamina, intelligence, defense, attack)
+  // If explicit cType/cRate not provided, infer from specific skill keys
+  const lowerKeys = Object.create(null);
+  for (const k in rates) lowerKeys[k.toLowerCase()] = rates[k];
+
+  // Charm inference
+  if ((!rates.cType || rates.cRate == null) && els.charmType && els.charmRate) {
+    const candidates = [
+      ['stamina','Stamina'],
+      ['intelligence','Intelligence'],
+      ['defense','Defense'],
+      ['attack','Attack']
+    ];
+    for (const [key, label] of candidates) {
+      if (lowerKeys[key] != null && !isNaN(parseFloat(lowerKeys[key]))) {
+        const exists = Array.from(els.charmType.options || []).some(o => o.value === label);
+        if (exists) {
+          els.charmType.value = label;
+          els.charmRate.value = String(parseFloat(lowerKeys[key]));
+          break;
+        }
+      }
+    }
+  }
+
+  // Primary inference
+  if (els.primaryRate) {
+    // If pRate missing, compute from total - chosen charm if possible
+    const total = lowerKeys['total'];
+    const cVal = parseFloat(els.charmRate.value);
+    if ((rates.pRate == null || isNaN(parseFloat(rates.pRate))) && total != null && isFinite(cVal)) {
+      const p = Math.max(0, parseFloat(total) - cVal);
+      if (isFinite(p)) els.primaryRate.value = String(Math.round(p));
+    }
+    // If still missing and attack is provided, prefer Attack as primary
+    if ((!isFinite(parseFloat(els.primaryRate.value)) || parseFloat(els.primaryRate.value) <= 0) && lowerKeys['attack'] != null) {
+      els.primaryRate.value = String(parseFloat(lowerKeys['attack']));
+      // Set Primary class to Attack if available
+      if (els.primaryType) {
+        const exists = Array.from(els.primaryType.options || []).some(o => o.value === 'Attack' || o.textContent === 'Attack');
+        if (exists) els.primaryType.value = 'Attack';
+      }
+    }
+  }
+}
+
+// Apply equipment-derived defaults if provided
+function applyImportedEquipment() {
+  const eq = importedMeta?.equipment;
+  if (!eq) return;
+  // Primary type from main hand
+  const prim = eq.primaryClassFromMainHand;
+  if (prim && els.primaryType) {
+    const exists = Array.from(els.primaryType.options || []).some(o => o.value === prim || o.textContent === prim);
+    if (exists) els.primaryType.value = prim;
+  }
+  // Charm type from charm
+  const charmT = eq.charmTypeFromCharm;
+  if (charmT && els.charmType) {
+    const exists = Array.from(els.charmType.options || []).some(o => o.value === charmT || o.textContent === charmT);
+    if (exists) els.charmType.value = charmT;
   }
 }
 

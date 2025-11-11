@@ -21,6 +21,8 @@
 
 (function () {
   'use strict';
+  // Keep in sync with userscript header @version
+  const USERSCRIPT_VERSION = '1.1.3';
 
   /** ---------------- Config ---------------- */
   const PLANNER_URL = 'https://ignantgaming.github.io/MWI_XP_Planner/';
@@ -85,6 +87,7 @@
   const mwixpRates = { staminaPerHour: null, totalPerHour: null, primaryPerHour: null, lastAt: 0 };
   let wsHooked = false;
   let currentCharId = null;
+  let perSkillRates = {};
   function getCurrentCharId() {
     try {
       const raw = localStorage.getItem('init_character_data');
@@ -100,12 +103,16 @@
     if (!me || !me.totalSkillExperienceMap) return;
     const xpMap = me.totalSkillExperienceMap;
     let total = 0, stamina = 0;
+    const factor = 3600 / durationSec;
+    perSkillRates = {};
     for (const k in xpMap) {
       const v = Number(xpMap[k] || 0);
       total += v;
-      if (k.endsWith('/stamina') || k === 'stamina') stamina += v;
+      const key = k.replace('/skills/','');
+      const perHour = Math.max(0, Math.round(v * factor));
+      perSkillRates[key] = perHour;
+      if (key === 'stamina') stamina += v;
     }
-    const factor = 3600 / durationSec;
     const totalPerHour = Math.max(0, Math.round(total * factor));
     const staminaPerHour = Math.max(0, Math.round(stamina * factor));
     const primaryPerHour = Math.max(0, totalPerHour - staminaPerHour);
@@ -139,7 +146,15 @@
           rates: {
             cType: 'Stamina',
             cRate: Math.max(0, Math.round(rates.staminaPerHour)),
-            pRate: Math.max(0, Math.round(rates.primaryPerHour))
+            pRate: Math.max(0, Math.round(rates.primaryPerHour)),
+            total: Number.isFinite(rates.totalPerHour) ? Math.max(0, Math.round(rates.totalPerHour)) : undefined,
+            attack: perSkillRates.attack,
+            defense: perSkillRates.defense,
+            intelligence: perSkillRates.intelligence,
+            stamina: perSkillRates.stamina,
+            magic: perSkillRates.magic,
+            ranged: perSkillRates.ranged,
+            melee: perSkillRates.melee
           }
         }
       };
@@ -147,6 +162,54 @@
     }
     // Fallback: skills array only (no rates)
     return buildPlannerUrlWithCs(arr);
+  }
+
+  // Equipment extraction from init_character_data
+  function getEquipmentMeta() {
+    try {
+      const raw = localStorage.getItem('init_character_data');
+      const obj = raw ? JSON.parse(raw) : null;
+      const items = obj?.characterInfo?.characterItems || [];
+      const byLoc = Object.create(null);
+      for (const it of items) {
+        if (it?.itemLocationHrid) byLoc[it.itemLocationHrid] = it;
+      }
+      const main = byLoc['/item_locations/main_hand'] || null;
+      const charm = byLoc['/item_locations/charm'] || null;
+      const mainHrid = main?.itemHrid || null;
+      const charmHrid = charm?.itemHrid || null;
+      const primary = derivePrimaryFromMain(mainHrid);
+      const charmType = deriveCharmType(charmHrid);
+      return {
+        mainHand: { itemHrid: mainHrid },
+        charm: { itemHrid: charmHrid },
+        primaryClassFromMainHand: primary,
+        charmTypeFromCharm: charmType
+      };
+    } catch { return null; }
+  }
+  function derivePrimaryFromMain(itemHrid) {
+    if (!itemHrid || typeof itemHrid !== 'string') return null;
+    const id = itemHrid.split('/').pop();
+    const has = (s) => id.includes(s);
+    if (has('gobo_boomstick') || /_trident$/.test(id) || /_trident_/.test(id) || /_staff$/.test(id) || /_staff_/.test(id)) return 'Magic';
+    if (has('gobo_slasher') || has('gobo_smasher') || has('werewolf_slasher') || has('chaotic_flail') || has('granite_bludgeon') || /_mace$/.test(id) || /_mace_/.test(id) || /_sword$/.test(id) || /_sword_/.test(id)) return 'Melee';
+    if (/_bulwark$/.test(id) || /_bulwark_/.test(id)) return 'Defense';
+    if (has('gobo_stabber') || /_spear$/.test(id) || /_spear_/.test(id)) return 'Attack';
+    if (has('gobo_shooter') || /_bow$/.test(id) || /_bow_/.test(id) || /_crossbow$/.test(id) || /_crossbow_/.test(id)) return 'Range';
+    return null;
+  }
+  function deriveCharmType(itemHrid) {
+    if (!itemHrid || typeof itemHrid !== 'string') return null;
+    const id = itemHrid.split('/').pop();
+    // patterns like advanced_stamina_charm
+    const m = /(trainee|basic|advanced|expert|master|grandmaster)_([a-z]+)_charm/.exec(id);
+    if (m && m[2]) {
+      const t = m[2];
+      const map = { attack:'Attack', magic:'Magic', melee:'Melee', defense:'Defense', stamina:'Stamina', intelligence:'Intelligence', ranged:'Range' };
+      return map[t] || null;
+    }
+    return null;
   }
 
   function hasFiniteRates(r) {
@@ -232,6 +295,9 @@
         primaryPerHour: Number.isFinite(live.primaryPerHour) ? live.primaryPerHour : null,
         lastAt: live.lastAt || Date.now()
       };
+      payload.meta.scriptVersion = USERSCRIPT_VERSION;
+      // Add equipment snapshot
+      payload.meta.equipment = getEquipmentMeta();
       setSnapshot(tag, payload);
       alert(`Saved snapshot: "${tag}"`);
       setActionState({ mode: 'open', tag, until: Date.now() + 5 * 60 * 1000 });
@@ -314,7 +380,9 @@
               cType: 'Stamina',
               cRate: Math.max(0, Math.round(r.staminaPerHour)),
               pRate: Math.max(0, Math.round(r.primaryPerHour))
-            }
+            },
+            scriptVersion: USERSCRIPT_VERSION,
+            equipment: getEquipmentMeta()
           }
         };
       }
