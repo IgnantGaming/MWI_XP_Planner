@@ -135,18 +135,30 @@ function tryImportFromHash() {
   if (!cs) return false;
   try {
     const text = decodeURIComponent(cs);
-    const arr = JSON.parse(text);
-    if (!Array.isArray(arr)) throw new Error('Expected an array for #cs');
-    importedSkills = arr;
-    // extra xp/hour params from userscript
-    const cType = getHashParam('cType') || null;
-    const cRate = getHashParam('cRate');
-    const pRate = getHashParam('pRate');
-    const rates = {};
-    if (cType) rates.cType = cType;
-    if (cRate != null && !isNaN(parseFloat(cRate))) rates.cRate = parseFloat(cRate);
-    if (pRate != null && !isNaN(parseFloat(pRate))) rates.pRate = parseFloat(pRate);
-    importedMeta = { source: 'hash', rates };
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) {
+      // Legacy: array-of-skills only
+      importedSkills = parsed;
+      const cType = getHashParam('cType') || null;
+      const cRate = getHashParam('cRate');
+      const pRate = getHashParam('pRate');
+      const rates = {};
+      if (cType) rates.cType = cType;
+      if (cRate != null && !isNaN(parseFloat(cRate))) rates.cRate = parseFloat(cRate);
+      if (pRate != null && !isNaN(parseFloat(pRate))) rates.pRate = parseFloat(pRate);
+      importedMeta = { source: 'hash', rates };
+    } else if (parsed && Array.isArray(parsed.skills)) {
+      // New: object with skills + meta.rates
+      importedSkills = parsed.skills;
+      const rates = (parsed.meta && parsed.meta.rates) || parsed.rates || {};
+      const norm = {};
+      if (typeof rates.cType === 'string') norm.cType = rates.cType;
+      if (rates.cRate != null && !isNaN(parseFloat(rates.cRate))) norm.cRate = parseFloat(rates.cRate);
+      if (rates.pRate != null && !isNaN(parseFloat(rates.pRate))) norm.pRate = parseFloat(rates.pRate);
+      importedMeta = { source: 'hash', rates: norm };
+    } else {
+      throw new Error('Unexpected #cs payload');
+    }
     localStorage.setItem(STORAGE_IMPORT_KEY, JSON.stringify({ skills: importedSkills, meta: importedMeta }));
     history.replaceState(null, '', location.pathname);
     return true;

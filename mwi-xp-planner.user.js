@@ -2,7 +2,7 @@
 // @name         MWI → XP Planner
 // @author       IgnantGaming
 // @namespace    ignantgaming.mwi
-// @version      1.1.4
+// @version      1.1.6
 // @description  Save combat-skill snapshots with tags; open them on your GitHub planner.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -131,13 +131,26 @@
     return { ...mwixpRates };
   }
   function buildPlannerUrlWithExport(arr, rates) {
-    const base = buildPlannerUrlWithCs(arr);
-    if (!rates || !Number.isFinite(rates.staminaPerHour) || !Number.isFinite(rates.primaryPerHour)) return base;
-    const qp = new URLSearchParams();
-    qp.set('cType', 'Stamina');
-    qp.set('cRate', String(Math.max(0, Math.round(rates.staminaPerHour))));
-    qp.set('pRate', String(Math.max(0, Math.round(rates.primaryPerHour))));
-    return base + '&' + qp.toString();
+    // Prefer embedding rates inside the #cs payload so imports from file/hash carry them.
+    if (rates && Number.isFinite(rates.staminaPerHour) && Number.isFinite(rates.primaryPerHour)) {
+      const payload = {
+        skills: arr,
+        meta: {
+          rates: {
+            cType: 'Stamina',
+            cRate: Math.max(0, Math.round(rates.staminaPerHour)),
+            pRate: Math.max(0, Math.round(rates.primaryPerHour))
+          }
+        }
+      };
+      return PLANNER_URL + '#cs=' + encodeURIComponent(JSON.stringify(payload));
+    }
+    // Fallback: skills array only (no rates)
+    return buildPlannerUrlWithCs(arr);
+  }
+
+  function hasFiniteRates(r) {
+    return !!(r && Number.isFinite(r.staminaPerHour) && Number.isFinite(r.primaryPerHour));
   }
 
   /** ---------------- Site-specific behaviors ---------------- */
@@ -235,8 +248,10 @@
       }
       const snap = getSnapshot(tag);
       if (!snap) { alert('Tag not found.'); return; }
-      const rates = snap?.meta?.rates || getLiveRates();
-      const url = buildPlannerUrlWithExport(snap.wanted, rates);
+      const metaRates = snap?.meta?.rates;
+      const live = getLiveRates();
+      const chosen = hasFiniteRates(metaRates) ? metaRates : (hasFiniteRates(live) ? live : null);
+      const url = buildPlannerUrlWithExport(snap.wanted, chosen);
       window.open(url, '_blank');
     }
 
@@ -288,16 +303,22 @@
         alert(`No saved snapshot for tag "${tag}". Open the planner from milkywayidle.com after saving.`);
         return;
       }
-      const cs = encodeURIComponent(JSON.stringify(snap.wanted));
-      let newHash = '#cs=' + cs;
       const r = snap?.meta?.rates;
+      // Embed rates inside #cs payload if present
+      let payload = snap.wanted;
       if (r && Number.isFinite(r.staminaPerHour) && Number.isFinite(r.primaryPerHour)) {
-        const qp = new URLSearchParams();
-        qp.set('cType', 'Stamina');
-        qp.set('cRate', String(Math.max(0, Math.round(r.staminaPerHour))));
-        qp.set('pRate', String(Math.max(0, Math.round(r.primaryPerHour))));
-        newHash += '&' + qp.toString();
+        payload = {
+          skills: snap.wanted,
+          meta: {
+            rates: {
+              cType: 'Stamina',
+              cRate: Math.max(0, Math.round(r.staminaPerHour)),
+              pRate: Math.max(0, Math.round(r.primaryPerHour))
+            }
+          }
+        };
       }
+      const newHash = '#cs=' + encodeURIComponent(JSON.stringify(payload));
       if (location.hash !== newHash) {
         history.replaceState(null, '', location.pathname + newHash);
         // If your site only reads hash at load, uncomment:
