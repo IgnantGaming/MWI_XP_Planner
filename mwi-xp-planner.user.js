@@ -81,6 +81,65 @@
     return PLANNER_URL + '#cs=' + encodeURIComponent(JSON.stringify(arr));
   }
 
+  // Live EXP/hour capture (via WS); fallback-friendly if Edible Tools is present
+  const mwixpRates = { staminaPerHour: null, totalPerHour: null, primaryPerHour: null, lastAt: 0 };
+  let wsHooked = false;
+  let currentCharId = null;
+  function getCurrentCharId() {
+    try {
+      const raw = localStorage.getItem('init_character_data');
+      const obj = raw ? JSON.parse(raw) : null;
+      return obj?.character?.id || null;
+    } catch { return null; }
+  }
+  function updateRatesFromBattle(obj) {
+    if (!obj || !obj.combatStartTime || !Array.isArray(obj.players)) return;
+    const durationSec = Math.max(1, (new Date() - new Date(obj.combatStartTime)) / 1000);
+    const myId = currentCharId || (currentCharId = getCurrentCharId());
+    const me = obj.players.find(p => p?.character?.id === myId) || obj.players[0];
+    if (!me || !me.totalSkillExperienceMap) return;
+    const xpMap = me.totalSkillExperienceMap;
+    let total = 0, stamina = 0;
+    for (const k in xpMap) {
+      const v = Number(xpMap[k] || 0);
+      total += v;
+      if (k.endsWith('/stamina') || k === 'stamina') stamina += v;
+    }
+    const factor = 3600 / durationSec;
+    const totalPerHour = Math.max(0, Math.round(total * factor));
+    const staminaPerHour = Math.max(0, Math.round(stamina * factor));
+    const primaryPerHour = Math.max(0, totalPerHour - staminaPerHour);
+    mwixpRates.staminaPerHour = staminaPerHour;
+    mwixpRates.totalPerHour = totalPerHour;
+    mwixpRates.primaryPerHour = primaryPerHour;
+    mwixpRates.lastAt = Date.now();
+  }
+  function hookWebSocketOnce() {
+    if (wsHooked || typeof WebSocket === 'undefined') return;
+    wsHooked = true;
+    const _add = WebSocket.prototype.addEventListener;
+    WebSocket.prototype.addEventListener = function(type, listener, options) {
+      if (type === 'message') {
+        const wrapped = (ev) => { try { if (typeof ev.data === 'string') { const o = JSON.parse(ev.data); if (o?.type === 'new_battle') updateRatesFromBattle(o); if (o?.type === 'init_character_data') currentCharId = o?.character?.id || currentCharId; } } catch {} return listener.call(this, ev); };
+        return _add.call(this, type, wrapped, options);
+      }
+      return _add.call(this, type, listener, options);
+    };
+  }
+  function getLiveRates() {
+    hookWebSocketOnce();
+    return { ...mwixpRates };
+  }
+  function buildPlannerUrlWithExport(arr, rates) {
+    const base = buildPlannerUrlWithCs(arr);
+    if (!rates || !Number.isFinite(rates.staminaPerHour) || !Number.isFinite(rates.primaryPerHour)) return base;
+    const qp = new URLSearchParams();
+    qp.set('cType', 'Stamina');
+    qp.set('cRate', String(Math.max(0, Math.round(rates.staminaPerHour))));
+    qp.set('pRate', String(Math.max(0, Math.round(rates.primaryPerHour))));
+    return base + '&' + qp.toString();
+  }
+
   /** ---------------- Site-specific behaviors ---------------- */
   const onMWI = location.hostname === 'www.milkywayidle.com';
   const onPlanner = location.hostname === 'ignantgaming.github.io' &&
@@ -151,6 +210,15 @@
         : 'snapshot-' + Date.now();
       const tag = prompt('Save snapshot under tag name:', defaultTag);
       if (!tag) return;
+      // attach latest EXP/hour rates for planner autofill
+      const live = getLiveRates();
+      payload.meta = payload.meta || {};
+      payload.meta.rates = {
+        staminaPerHour: Number.isFinite(live.staminaPerHour) ? live.staminaPerHour : null,
+        totalPerHour: Number.isFinite(live.totalPerHour) ? live.totalPerHour : null,
+        primaryPerHour: Number.isFinite(live.primaryPerHour) ? live.primaryPerHour : null,
+        lastAt: live.lastAt || Date.now()
+      };
       setSnapshot(tag, payload);
       alert(`Saved snapshot: "${tag}"`);
       setActionState({ mode: 'open', tag, until: Date.now() + 5 * 60 * 1000 });
@@ -167,7 +235,8 @@
       }
       const snap = getSnapshot(tag);
       if (!snap) { alert('Tag not found.'); return; }
-      const url = buildPlannerUrlWithCs(snap.wanted);
+      const rates = snap?.meta?.rates || getLiveRates();
+      const url = buildPlannerUrlWithExport(snap.wanted, rates);
       window.open(url, '_blank');
     }
 
@@ -220,7 +289,15 @@
         return;
       }
       const cs = encodeURIComponent(JSON.stringify(snap.wanted));
-      const newHash = '#cs=' + cs;
+      let newHash = '#cs=' + cs;
+      const r = snap?.meta?.rates;
+      if (r && Number.isFinite(r.staminaPerHour) && Number.isFinite(r.primaryPerHour)) {
+        const qp = new URLSearchParams();
+        qp.set('cType', 'Stamina');
+        qp.set('cRate', String(Math.max(0, Math.round(r.staminaPerHour))));
+        qp.set('pRate', String(Math.max(0, Math.round(r.primaryPerHour))));
+        newHash += '&' + qp.toString();
+      }
       if (location.hash !== newHash) {
         history.replaceState(null, '', location.pathname + newHash);
         // If your site only reads hash at load, uncomment:

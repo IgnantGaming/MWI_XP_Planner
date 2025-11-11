@@ -102,6 +102,8 @@ function setTable(data, source='fetch') {
   if (importedSkills) {
     renderImportedTable();
     autofillFromImported();
+    applyImportedRates();
+    calculate();
   }
 }
 fetch('experience.json')
@@ -136,7 +138,15 @@ function tryImportFromHash() {
     const arr = JSON.parse(text);
     if (!Array.isArray(arr)) throw new Error('Expected an array for #cs');
     importedSkills = arr;
-    importedMeta = { source: 'hash' };
+    // extra xp/hour params from userscript
+    const cType = getHashParam('cType') || null;
+    const cRate = getHashParam('cRate');
+    const pRate = getHashParam('pRate');
+    const rates = {};
+    if (cType) rates.cType = cType;
+    if (cRate != null && !isNaN(parseFloat(cRate))) rates.cRate = parseFloat(cRate);
+    if (pRate != null && !isNaN(parseFloat(pRate))) rates.pRate = parseFloat(pRate);
+    importedMeta = { source: 'hash', rates };
     localStorage.setItem(STORAGE_IMPORT_KEY, JSON.stringify({ skills: importedSkills, meta: importedMeta }));
     history.replaceState(null, '', location.pathname);
     return true;
@@ -157,6 +167,23 @@ function loadImportFromStorage() {
     }
   } catch {}
   return false;
+}
+
+// Apply imported xp/hour rates and charm type
+function applyImportedRates() {
+  const rates = importedMeta?.rates || {};
+  if (!rates) return;
+  if (rates.cType && els.charmType) {
+    // set only if it exists in the dropdown
+    const opt = Array.from(els.charmType.options || []).some(o => o.value === rates.cType);
+    els.charmType.value = opt ? rates.cType : els.charmType.value;
+  }
+  if (rates.cRate != null && !isNaN(parseFloat(rates.cRate))) {
+    els.charmRate.value = String(parseFloat(rates.cRate));
+  }
+  if (rates.pRate != null && !isNaN(parseFloat(rates.pRate))) {
+    els.primaryRate.value = String(parseFloat(rates.pRate));
+  }
 }
 
 // ---------- Helpers ----------
