@@ -2,7 +2,7 @@
 // @name         MWI → XP Planner
 // @author       IgnantGaming
 // @namespace    ignantgaming.mwi
-// @version      1.1.8
+// @version      1.1.9
 // @description  Save combat-skill snapshots with tags; open them on your GitHub planner.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -22,7 +22,7 @@
 (function () {
   'use strict';
   // Keep in sync with userscript header @version
-  const USERSCRIPT_VERSION = '1.1.8';
+  const USERSCRIPT_VERSION = '1.1.9';
 
   /** ---------------- Config ---------------- */
   const PLANNER_URL = 'https://ignantgaming.github.io/MWI_XP_Planner/';
@@ -66,7 +66,9 @@
     const meta = {
       characterID: obj.character?.id || null,
       characterName: obj.character?.name || null,
-      timestamp: obj.currentTimestamp || obj.announcementTimestamp || new Date().toISOString()
+      timestamp: obj.currentTimestamp || obj.announcementTimestamp || new Date().toISOString(),
+      // Include equipment snapshot directly from init_character_data for accuracy
+      equipment: getEquipmentMeta()
     };
     return { wanted, meta };
   }
@@ -173,15 +175,33 @@
     try {
       const raw = localStorage.getItem('init_character_data');
       const obj = raw ? JSON.parse(raw) : null;
-      const items = obj?.characterInfo?.characterItems || [];
+      if (!obj || typeof obj !== 'object') return null;
+
+      // Gather character items from known shapes
+      let items = [];
+      if (Array.isArray(obj?.characterInfo?.characterItems)) {
+        items = obj.characterInfo.characterItems.slice();
+      } else if (Array.isArray(obj?.characterItems)) {
+        // Top-level characterItems as seen in data.txt
+        items = obj.characterItems.slice();
+      } else if (obj?.characterItemMap && typeof obj.characterItemMap === 'object') {
+        items = Object.values(obj.characterItemMap);
+      } else if (Array.isArray(obj?.items)) {
+        items = obj.items.slice();
+      }
+
       const byLoc = Object.create(null);
       for (const it of items) {
-        if (it?.itemLocationHrid) byLoc[it.itemLocationHrid] = it;
+        if (!it || typeof it !== 'object') continue;
+        const loc = it.itemLocationHrid || it.item_location_hrid || it.locationHrid || it.location_hrid || it.location;
+        if (!loc) continue;
+        byLoc[loc] = it;
       }
+
       const main = byLoc['/item_locations/main_hand'] || null;
       const charm = byLoc['/item_locations/charm'] || null;
-      const mainHrid = main?.itemHrid || null;
-      const charmHrid = charm?.itemHrid || null;
+      const mainHrid = (main && (main.itemHrid || main.item_hrid || main.item?.hrid)) || null;
+      const charmHrid = (charm && (charm.itemHrid || charm.item_hrid || charm.item?.hrid)) || null;
       const primary = derivePrimaryFromMain(mainHrid);
       const charmType = deriveCharmType(charmHrid);
       return {
