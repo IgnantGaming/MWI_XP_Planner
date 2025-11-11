@@ -395,11 +395,13 @@
       }
       // Always embed object payload with meta (equipment + any available rates)
       const live = getLiveRates();
+      // Prefer equipment saved in the snapshot; fallback to best-effort extraction (likely null on planner domain)
+      const savedEq = snap?.meta?.equipment || null;
       const payload = {
         skills: snap.wanted,
         meta: {
           scriptVersion: USERSCRIPT_VERSION,
-          equipment: getEquipmentMeta(),
+          equipment: savedEq || getEquipmentMeta(),
           rates: {}
         }
       };

@@ -159,14 +159,15 @@ function tryImportFromHash() {
       if (pRate != null && !isNaN(parseFloat(pRate))) rates.pRate = parseFloat(pRate);
       importedMeta = { source: 'hash', rates };
     } else if (parsed && Array.isArray(parsed.skills)) {
-      // New: object with skills + meta.rates
+      // New: object with skills + meta.rates (+ meta.equipment)
       importedSkills = parsed.skills;
       const rates = (parsed.meta && parsed.meta.rates) || parsed.rates || {};
       const norm = {};
       if (typeof rates.cType === 'string') norm.cType = rates.cType;
       if (rates.cRate != null && !isNaN(parseFloat(rates.cRate))) norm.cRate = parseFloat(rates.cRate);
       if (rates.pRate != null && !isNaN(parseFloat(rates.pRate))) norm.pRate = parseFloat(rates.pRate);
-      importedMeta = { source: 'hash', rates: norm, scriptVersion: parsed?.meta?.scriptVersion };
+      const equipment = (parsed.meta && parsed.meta.equipment) || parsed.equipment || null;
+      importedMeta = { source: 'hash', rates: norm, scriptVersion: parsed?.meta?.scriptVersion, equipment };
     } else {
       throw new Error('Unexpected #cs payload');
     }
