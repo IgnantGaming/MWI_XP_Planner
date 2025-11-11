@@ -141,6 +141,11 @@ function getHashParam(k) {
   const q = new URLSearchParams(h.startsWith('#') ? h.slice(1) : h);
   return q.get(k);
 }
+function getQueryParam(k) {
+  const s = location.search || '';
+  const q = new URLSearchParams(s.startsWith('?') ? s.slice(1) : s);
+  return q.get(k);
+}
 function tryImportFromHash() {
   const cs = getHashParam('cs');
   if (!cs) return false;
@@ -172,7 +177,11 @@ function tryImportFromHash() {
       throw new Error('Unexpected #cs payload');
     }
     localStorage.setItem(STORAGE_IMPORT_KEY, JSON.stringify({ skills: importedSkills, meta: importedMeta }));
-    history.replaceState(null, '', location.pathname);
+    // Debug aid: keep hash if keepHash=1 in hash or debug=1 in hash or query
+    const keep = (getHashParam('keepHash') === '1') || (getHashParam('debug') === '1') || (getQueryParam('debug') === '1');
+    // Log the normalized payload for inspection
+    try { console.log('XP Planner imported from #cs:', { skills: importedSkills, meta: importedMeta }); } catch {}
+    if (!keep) history.replaceState(null, '', location.pathname);
     return true;
   } catch (e) {
     console.warn('Failed to import from #cs:', e);
