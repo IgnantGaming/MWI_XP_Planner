@@ -94,6 +94,12 @@
   let wsHooked = false;
   let currentCharId = null;
   let perSkillRates = {};
+  const LIVE_CACHE_KEY = 'mwixp:liveRates:v1';
+  function readLiveCache() { try { const t = localStorage.getItem(LIVE_CACHE_KEY); return t ? JSON.parse(t) : null; } catch { return null; } }
+  function writeLiveCache(obj) { try { localStorage.setItem(LIVE_CACHE_KEY, JSON.stringify(obj)); } catch {} }
+  // Sampler to derive rates even if WS parsing misses messages
+  let samplerId = null;
+  let lastSample = null; // { at: number, xp: { key->xp } }
   // Track last battle snapshot to compute deltas between battles
   let lastBattleStart = null; // Date
   let lastBattleTotals = null; // { skillKey -> total xp in series }
@@ -173,11 +179,67 @@
     mwixpRates.charmPerHour = Math.round(charmPerHour);
     mwixpRates.charmType = charmType || (charmKey ? (charmKey === 'ranged' ? 'Range' : charmKey.charAt(0).toUpperCase() + charmKey.slice(1)) : null);
     mwixpRates.lastAt = Date.now();
+    if (mwixpRates.totalPerHour > 0) { const filtered = { attack:Number(perSkillRates.attack||0), defense:Number(perSkillRates.defense||0), intelligence:Number(perSkillRates.intelligence||0), stamina:Number(perSkillRates.stamina||0), magic:Number(perSkillRates.magic||0), ranged:Number(perSkillRates.ranged||0), melee:Number(perSkillRates.melee||0)}; writeLiveCache({ lastAt: mwixpRates.lastAt, totalPerHour: mwixpRates.totalPerHour, primaryPerHour: mwixpRates.primaryPerHour, charmPerHour: mwixpRates.charmPerHour, charmType: mwixpRates.charmType, perSkill: filtered }); }
 
     // Track last sample (per battle series)
     lastBattleStart = nowStart;
     lastBattleTotals = {};
     for (const k in totals) lastBattleTotals[k] = Number(totals[k] || 0);
+  }
+
+  function readCurrentSkillXpFromInit() {
+    try {
+      const raw = localStorage.getItem('init_character_data');
+      if (!raw) return null;
+      const o = JSON.parse(raw);
+      const arr = Array.isArray(o?.characterSkills) ? o.characterSkills : null;
+      if (!arr) return null;
+      const map = Object.create(null);
+      for (const s of arr) {
+        if (!s || !s.skillHrid) continue;
+        const hrid = String(s.skillHrid); if (!WANTED_HRIDS.has(hrid)) continue; const key = hrid.replace('/skills/', ''); map[key] = Number(s.experience || 0);
+      }
+      return map;
+    } catch { return null; }
+  }
+  function startSampler() {
+    if (samplerId) return;
+    samplerId = setInterval(() => {
+      const now = Date.now();
+      const curr = readCurrentSkillXpFromInit();
+      if (!curr) return;
+      if (lastSample && lastSample.at && lastSample.xp) {
+        const dt = Math.max(1, (now - lastSample.at) / 1000);
+        const next = {};
+        let total = 0;
+        for (const k in curr) {
+          const prev = Number(lastSample.xp[k] || 0);
+          const dx = Math.max(0, Number(curr[k] || 0) - prev);
+          const ph = Math.max(0, Math.round((dx * 3600) / dt));
+          next[k] = ph;
+          total += ph;
+        }
+        perSkillRates = next;
+        // Determine charm from equipment if possible
+        let charmKey = null;
+        let charmType = null;
+        try {
+          const eq = getEquipmentMeta();
+          charmType = eq?.charmTypeFromCharm || null;
+          if (charmType) charmKey = charmType.toLowerCase() === 'range' ? 'ranged' : charmType.toLowerCase();
+        } catch {}
+        const charmPerHour = charmKey ? Number(next[charmKey] || 0) : 0;
+        const totalPerHour = Math.max(0, Math.round(total));
+        const primaryPerHour = Math.max(0, totalPerHour - charmPerHour);
+        mwixpRates.totalPerHour = totalPerHour;
+        mwixpRates.primaryPerHour = primaryPerHour;
+        mwixpRates.charmPerHour = Math.round(charmPerHour);
+        mwixpRates.charmType = charmType || (charmKey ? (charmKey === 'ranged' ? 'Range' : charmKey.charAt(0).toUpperCase() + charmKey.slice(1)) : null);
+        mwixpRates.lastAt = now;
+        if (mwixpRates.totalPerHour > 0) { const filtered = { attack:Number(perSkillRates.attack||0), defense:Number(perSkillRates.defense||0), intelligence:Number(perSkillRates.intelligence||0), stamina:Number(perSkillRates.stamina||0), magic:Number(perSkillRates.magic||0), ranged:Number(perSkillRates.ranged||0), melee:Number(perSkillRates.melee||0)}; writeLiveCache({ lastAt: mwixpRates.lastAt, totalPerHour: mwixpRates.totalPerHour, primaryPerHour: mwixpRates.primaryPerHour, charmPerHour: mwixpRates.charmPerHour, charmType: mwixpRates.charmType, perSkill: filtered }); }
+      }
+      lastSample = { at: now, xp: curr };
+    }, 15000);
   }
 function hookWebSocketOnce() {
     if (wsHooked || typeof WebSocket === 'undefined') return;
@@ -384,6 +446,24 @@ function hookWebSocketOnce() {
   /** ---------------- Site-specific behaviors ---------------- */
   const onMWI = (location.hostname === 'www.milkywayidle.com' || location.hostname === 'milkywayidle.com' || location.hostname === 'test.milkywayidle.com' || location.hostname === 'www.milkywayidlecn.com' || location.hostname === 'milkywayidlecn.com' || location.hostname === 'test.milkywayidlecn.com');
   const onPlanner = ((location.hostname === 'ignantgaming.github.io' && location.pathname.startsWith('/MWI_XP_Planner/')) || location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+  // Install a minimal JSON.parse hook to catch battle payloads even if WS handlers are intercepted
+  function installJsonHookOnce(){
+    try {
+      if (window.__mwixp_json_hooked) return; window.__mwixp_json_hooked = true;
+      const _parse = JSON.parse;
+      JSON.parse = function(text, reviver){
+        const val = _parse.call(JSON, text, reviver);
+        try {
+          if (val && typeof val === 'object' && val.combatStartTime && Array.isArray(val.players)) {
+            updateRatesFromBattle(val);
+          } else if (val && (val.type === 'new_battle' || val.type === 'battle_update' || val.type === 'battle_result') && val.combatStartTime && Array.isArray(val.players)) {
+            updateRatesFromBattle(val);
+          }
+        } catch {}
+        return val;
+      };
+    } catch {}
+  }
 
   // Advertise userscript presence to the planner site so it can hide the install CTA
   if (onPlanner) { try { window.__MWIXP_INSTALLED = USERSCRIPT_VERSION; localStorage.setItem('mwixp:userscript', USERSCRIPT_VERSION); } catch {} }
@@ -398,7 +478,8 @@ function hookWebSocketOnce() {
       .mwixp-fab:hover { filter: brightness(1.06); }
     `);
     // Ensure WS hook is active as early as possible so we catch the next message
-    try { hookWebSocketOnce(); } catch {}
+    try { hookWebSocketOnce(); } catch {}    try { installJsonHookOnce(); } catch {}    try { startSampler(); } catch {}
+    try { startSampler(); } catch {}
 
     // Temporary action state: after saving, show Open button for 5 minutes
     const ACTION_STATE_KEY = 'mwixp:lastActionState'; // { mode: 'open'|'save', tag?: string, until?: number }
@@ -466,13 +547,31 @@ function hookWebSocketOnce() {
       // attach latest EXP/hour rates for planner autofill
       const live = getLiveRates();
       payload.meta = payload.meta || {};
-      payload.meta.rates = {
-        charmType: live.charmType || null,
-        charmPerHour: Number.isFinite(live.charmPerHour) ? live.charmPerHour : null,
-        totalPerHour: Number.isFinite(live.totalPerHour) ? live.totalPerHour : null,
-        primaryPerHour: Number.isFinite(live.primaryPerHour) ? live.primaryPerHour : null,
-        lastAt: live.lastAt || Date.now()
-      };
+      // Build a robust rates object including per-skill so the planner can always reconcile
+      const rr = {};
+      // Per-skill snapshot from recent updates (rounded numbers, default 0)
+      const keys = ['attack','defense','intelligence','stamina','magic','ranged','melee']; const cache = readLiveCache(); const perSource = (cache && cache.perSkill) || perSkillRates || {}; for (const k of keys) rr[k] = Number(perSource[k] || 0);
+      // Charm type from equipment if available; otherwise from live
+      const eqNow = getEquipmentMeta();
+      if (eqNow?.charmTypeFromCharm) rr.cType = eqNow.charmTypeFromCharm; else if (live.charmType) rr.cType = live.charmType; else if (cache?.charmType) rr.cType = cache.charmType;
+      // Compute charm rate from matching per-skill when possible; else use live
+      if (rr.cType) {
+        const ck = rr.cType.toLowerCase() === 'range' ? 'ranged' : rr.cType.toLowerCase();
+        if (rr[ck] != null) rr.cRate = Math.max(0, Math.round(Number(rr[ck] || 0)));
+      }
+      if (rr.cRate == null && Number.isFinite(live.charmPerHour)) rr.cRate = Math.max(0, Math.round(live.charmPerHour)); if (rr.cRate == null && Number.isFinite(cache?.charmPerHour)) rr.cRate = Math.max(0, Math.round(cache.charmPerHour));
+      // Compute total from per-skill if any present; else use live total
+      const sum = keys.reduce((a,k)=>a + (Number(rr[k]||0)), 0);
+      if (sum > 0) rr.total = Math.max(0, Math.round(sum));
+      if (rr.total == null && Number.isFinite(live.totalPerHour)) rr.total = Math.max(0, Math.round(live.totalPerHour)); if (rr.total == null && Number.isFinite(cache?.totalPerHour)) rr.total = Math.max(0, Math.round(cache.totalPerHour));
+      // Compute pRate from total − cRate if possible; else use live primary
+      if (rr.pRate == null && rr.total != null && rr.cRate != null) rr.pRate = Math.max(0, rr.total - rr.cRate);
+      if (rr.pRate == null && Number.isFinite(live.primaryPerHour)) rr.pRate = Math.max(0, Math.round(live.primaryPerHour)); if (rr.pRate == null && Number.isFinite(cache?.primaryPerHour)) rr.pRate = Math.max(0, Math.round(cache.primaryPerHour));
+      // Final reconciliation if one is missing but others are present
+      if (rr.pRate == null && rr.total != null && rr.cRate != null) rr.pRate = Math.max(0, rr.total - rr.cRate);
+      if (rr.cRate == null && rr.total != null && rr.pRate != null) rr.cRate = Math.max(0, rr.total - rr.pRate);
+      rr.lastAt = live.lastAt || cache?.lastAt || Date.now();
+      payload.meta.rates = rr;
       payload.meta.scriptVersion = USERSCRIPT_VERSION;
       // Add equipment snapshot
       payload.meta.equipment = getEquipmentMeta();
