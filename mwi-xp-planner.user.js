@@ -193,7 +193,7 @@ function hookWebSocketOnce() {
         if (o.combatStartTime && Array.isArray(o.players)) {
           updateRatesFromBattle(o);
         }
-        if (o.type === 'new_battle' || o.type === 'battle_update' || o.type === 'battle_result') {
+        if (o.type === 'new_battle') {
           if (o.players && o.combatStartTime) updateRatesFromBattle(o);
         }
       } catch {}
@@ -426,24 +426,35 @@ function hookWebSocketOnce() {
       }
     }
 
-    function ensureButtons(payload) {      if (!document.getElementById('mwixp-save')) {
-        const b = document.createElement('button');
-        b.id = 'mwixp-save'; b.className = 'mwixp-fab';
-        b.textContent = 'Save MWI -> Tag';
-        b.title = 'Save current combat skills to a named tag';
-        b.onclick = () => { let p = extractFromInitCharacterData() || extractLegacyCharacterSkills(); if (!p) { alert('No init_character_data or characterSkills found yet. Try after loading the game UI or starting a battle.'); return; } doSaveSnapshot(p); };
-        document.body.appendChild(b);
-      }
-      if (!document.getElementById('mwixp-open')) {
-        const b = document.createElement('button');
-        b.id = 'mwixp-open'; b.className = 'mwixp-fab';
-        b.textContent = 'Open Tag in Planner';
-        b.title = 'Open the last saved tag in the planner';
-        b.style.display = 'none';
-        b.onclick = () => doOpenTag();
-        document.body.appendChild(b);
-      }
-      updateActionButtonsFromState();
+    function runWhenBodyReady(fn) {
+      if (document.body) { try { fn(); } catch {} return; }
+      window.addEventListener('DOMContentLoaded', () => { try { fn(); } catch {} }, { once: true });
+    }
+
+    function ensureButtons(payload) {
+      const attach = () => {
+        try {
+          if (!document.getElementById('mwixp-save')) {
+            const b = document.createElement('button');
+            b.id = 'mwixp-save'; b.className = 'mwixp-fab';
+            b.textContent = 'Save MWI -> Tag';
+            b.title = 'Save current combat skills to a named tag';
+            b.onclick = () => { let p = extractFromInitCharacterData() || extractLegacyCharacterSkills(); if (!p) { alert('No init_character_data or characterSkills found yet. Try after loading the game UI or starting a battle.'); return; } doSaveSnapshot(p); };
+            document.body.appendChild(b);
+          }
+          if (!document.getElementById('mwixp-open')) {
+            const b = document.createElement('button');
+            b.id = 'mwixp-open'; b.className = 'mwixp-fab';
+            b.textContent = 'Open Tag in Planner';
+            b.title = 'Open the last saved tag in the planner';
+            b.style.display = 'none';
+            b.onclick = () => doOpenTag();
+            document.body.appendChild(b);
+          }
+          updateActionButtonsFromState();
+        } catch {}
+      };
+      if (document.body) attach(); else window.addEventListener('DOMContentLoaded', attach, { once: true });
     }
 
     function doSaveSnapshot(payload) {
