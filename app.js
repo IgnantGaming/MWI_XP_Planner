@@ -130,13 +130,25 @@ function setTable(data, source='fetch') {
     else fetchUserscriptVersion().then(v => { if (v && uv.textContent === 'n/a') uv.textContent = v; }).catch(() => {});
   }
 }
-fetch('experience.json')
-  .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-  .then(data => setTable(data, 'fetch'))
-  .catch(() => {
-    els.fileBanner.style.display = 'block';
-    els.fileStatus.textContent = 'Choose your experience.json to load it locally.';
-  });
+// Resolve experience.json relative to current page and avoid stale caches on GitHub Pages
+(function loadExperienceJson() {
+  try {
+    const url = new URL('experience.json', location.href);
+    // Cache-bust to avoid stale GH Pages caches after deploys
+    url.searchParams.set('v', APP_VERSION);
+    fetch(url.toString(), { cache: 'no-cache', credentials: 'same-origin' })
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(data => setTable(data, 'fetch'))
+      .catch((err) => {
+        if (els.fileBanner) els.fileBanner.style.display = 'block';
+        if (els.fileStatus) els.fileStatus.textContent = 'Choose your experience.json to load it locally.';
+        try { console.warn('Failed to fetch experience.json:', err && err.message ? err.message : err); } catch {}
+      });
+  } catch (e) {
+    if (els.fileBanner) els.fileBanner.style.display = 'block';
+    if (els.fileStatus) els.fileStatus.textContent = 'Choose your experience.json to load it locally.';
+  }
+})();
 els.fileInput?.addEventListener('change', e => {
   const file = e.target.files?.[0]; if (!file) return;
   const reader = new FileReader();
