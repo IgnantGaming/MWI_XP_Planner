@@ -1,9 +1,10 @@
-// ==UserScript==
+﻿// ==UserScript==
 // @name         MWI → XP Planner
 // @author       IgnantGaming
 // @namespace    ignantgaming.mwi
-// @version      1.1.11
+// @version      1.2.0
 // @description  Save combat-skill snapshots with tags; open them on your GitHub planner.
+// @match        http://localhost:8080/*
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
 // @match        https://www.milkywayidlecn.com/*
@@ -15,6 +16,7 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @license      CC-BY-NC-SA-4.0
+// @run-at       document-start                          
 // @downloadURL https://update.greasyfork.org/scripts/555252/MWI%20%E2%86%92%20XP%20Planner.user.js
 // @updateURL https://update.greasyfork.org/scripts/555252/MWI%20%E2%86%92%20XP%20Planner.meta.js
 // ==/UserScript==
@@ -22,10 +24,11 @@
 (function () {
   'use strict';
   // Keep in sync with userscript header @version
-  const USERSCRIPT_VERSION = '1.1.11';
+  const USERSCRIPT_VERSION = '1.2.0';
 
   /** ---------------- Config ---------------- */
   const PLANNER_URL = 'https://ignantgaming.github.io/MWI_XP_Planner/';
+  //const PLANNER_URL = 'http://localhost:8080/';
   const SNAP_KEY = 'mwi:snapshots:v1'; // GM storage key for all snapshots
   const WANTED_HRIDS = new Set([
     '/skills/melee',
@@ -38,8 +41,8 @@
   ]);
 
   /** ---------------- Utilities ---------------- */
-  const log = (...a) => console.log('[MWI→Planner]', ...a);
-  const warn = (...a) => console.warn('[MWI→Planner]', ...a);
+  const log = (...a) => console.log('[MWI->Planner]', ...a);
+  const warn = (...a) => console.warn('[MWI->Planner]', ...a);
 
   function safeParse(str) {
     try {
@@ -86,10 +89,13 @@
   }
 
   // Live EXP/hour capture (via WS); fallback-friendly if Edible Tools is present
-  const mwixpRates = { staminaPerHour: null, totalPerHour: null, primaryPerHour: null, lastAt: 0 };
+  const mwixpRates = { charmType: null, charmPerHour: null, totalPerHour: null, primaryPerHour: null, lastAt: 0 };
   let wsHooked = false;
   let currentCharId = null;
   let perSkillRates = {};
+  // Track last battle snapshot to compute deltas between battles
+  let lastBattleStart = null; // Date
+  let lastBattleTotals = null; // { skillKey -> total xp in series }
   function getCurrentCharId() {
     try {
       const raw = localStorage.getItem('init_character_data');
@@ -99,31 +105,82 @@
   }
   function updateRatesFromBattle(obj) {
     if (!obj || !obj.combatStartTime || !Array.isArray(obj.players)) return;
-    const durationSec = Math.max(1, (new Date() - new Date(obj.combatStartTime)) / 1000);
+    const nowStart = new Date(obj.combatStartTime);
     const myId = currentCharId || (currentCharId = getCurrentCharId());
     const me = obj.players.find(p => p?.character?.id === myId) || obj.players[0];
     if (!me || !me.totalSkillExperienceMap) return;
-    const xpMap = me.totalSkillExperienceMap;
-    let total = 0, stamina = 0;
-    const factor = 3600 / durationSec;
-    perSkillRates = {};
-    for (const k in xpMap) {
-      const v = Number(xpMap[k] || 0);
-      total += v;
-      const key = k.replace('/skills/','');
-      const perHour = Math.max(0, Math.round(v * factor));
-      perSkillRates[key] = perHour;
-      if (key === 'stamina') stamina += v;
+    const totals = me.totalSkillExperienceMap;
+
+    // 1) Compute instantaneous rates within the current battle using totals/time since start
+    const durationSec = Math.max(1, (Date.now() - nowStart.getTime()) / 1000);
+    const instPerSkill = {};
+    let instTotal = 0;
+    for (const k in totals) {
+      const key = k.replace('/skills/', '');
+      const v = Number(totals[k] || 0);
+      const ph = Math.max(0, Math.round((v * 3600) / durationSec));
+      instPerSkill[key] = ph;
+      instTotal += ph;
+      // no-op
     }
-    const totalPerHour = Math.max(0, Math.round(total * factor));
-    const staminaPerHour = Math.max(0, Math.round(stamina * factor));
-    const primaryPerHour = Math.max(0, totalPerHour - staminaPerHour);
-    mwixpRates.staminaPerHour = staminaPerHour;
-    mwixpRates.totalPerHour = totalPerHour;
+
+    // 2) If we have a previous battle sample from the same series, blend with delta-based rates
+    let usePerSkill = instPerSkill;
+    if (lastBattleStart && lastBattleTotals && nowStart.getTime() === lastBattleStart.getTime()) {
+      const dtSec = Math.max(1, (Date.now() - lastBattleStart.getTime()) / 1000);
+      const nextPerSkill = {};
+      let total = 0;
+      for (const k in totals) {
+        const key = k.replace('/skills/', '');
+        const curr = Number(totals[k] || 0);
+        const prev = Number(lastBattleTotals[k] || 0);
+        const dx = Math.max(0, curr - prev);
+        const perHour = Math.round(Math.max(0, (dx * 3600) / dtSec));
+        nextPerSkill[key] = perHour;
+        total += perHour;
+        // no-op
+      }
+      // Blend: simple max of instantaneous vs delta to be robust
+      const blended = {};
+      const keys = new Set([...Object.keys(instPerSkill), ...Object.keys(nextPerSkill)]);
+      keys.forEach((key) => { blended[key] = Math.max(instPerSkill[key] || 0, nextPerSkill[key] || 0); });
+      usePerSkill = blended;
+      
+    }
+
+    // Determine current charm skill/type
+    let charmKey = null;
+    let charmType = null;
+    try {
+      const focus = me?.combatDetails?.focusTraining; // '/skills/intelligence' when charm focuses Intelligence
+      if (typeof focus === 'string' && focus.startsWith('/skills/')) {
+        charmKey = focus.replace('/skills/', '');
+      }
+    } catch {}
+    if (!charmKey) {
+      const eq = getEquipmentMeta();
+      charmType = eq?.charmTypeFromCharm || null;
+      if (charmType) charmKey = charmType.toLowerCase() === 'range' ? 'ranged' : charmType.toLowerCase();
+    }
+
+    // Publish
+    perSkillRates = usePerSkill;
+    const totalPerHour = Object.values(usePerSkill).reduce((a, b) => a + (Number(b) || 0), 0);
+    const charmPerHour = charmKey ? Number(usePerSkill[charmKey] || 0) : 0;
+    const primaryPerHour = Math.max(0, Math.round(totalPerHour - charmPerHour));
+    mwixpRates.totalPerHour = Math.round(totalPerHour);
     mwixpRates.primaryPerHour = primaryPerHour;
+    mwixpRates.charmPerHour = Math.round(charmPerHour);
+    mwixpRates.charmType = charmType || (charmKey ? (charmKey === 'ranged' ? 'Range' : charmKey.charAt(0).toUpperCase() + charmKey.slice(1)) : null);
     mwixpRates.lastAt = Date.now();
+    
+
+    // Track last sample (per battle series)
+    lastBattleStart = nowStart;
+    lastBattleTotals = {};
+    for (const k in totals) lastBattleTotals[k] = Number(totals[k] || 0);
   }
-  function hookWebSocketOnce() {
+function hookWebSocketOnce() {
     if (wsHooked || typeof WebSocket === 'undefined') return;
     wsHooked = true;
     const NativeWS = WebSocket;
@@ -153,6 +210,9 @@
           d.text().then(t => { try { processObj(JSON.parse(t)); } catch {} });
         } else if (d instanceof ArrayBuffer) {
           try { const t = new TextDecoder('utf-8').decode(new Uint8Array(d)); processObj(JSON.parse(t)); } catch {}
+        } else if (typeof d === 'object') {
+          // Some scripts rebind MessageEvent.data to a parsed object
+          try { processObj(d); } catch {}
         }
       } catch {}
     }
@@ -199,7 +259,11 @@
   }
   function getLiveRates() {
     hookWebSocketOnce();
-    return { ...mwixpRates };
+    // Build a stable per-skill map with default zeros
+    const keys = ['attack','defense','intelligence','stamina','magic','ranged','melee'];
+    const per = Object.create(null);
+    for (const k of keys) per[k] = Number(perSkillRates[k] || 0);
+    return { ...mwixpRates, perSkill: per };
   }
   function buildPlannerUrlWithExport(arr, rates) {
     // Always embed an object payload so equipment is carried even when rates are missing.
@@ -211,15 +275,8 @@
         rates: {}
       }
     };
-    // Fill rates if available (partial OK)
-    if (rates) {
+      // Build meta.rates with per-skill and any aggregates if available
       const r = {};
-      if (Number.isFinite(rates.staminaPerHour)) r.cRate = Math.max(0, Math.round(rates.staminaPerHour));
-      if (Number.isFinite(rates.primaryPerHour)) r.pRate = Math.max(0, Math.round(rates.primaryPerHour));
-      if (Number.isFinite(rates.totalPerHour)) r.total = Math.max(0, Math.round(rates.totalPerHour));
-      // Default charm type when we have stamina rate
-      if (r.cRate != null) r.cType = 'Stamina';
-      // Per-skill map captured from battle
       r.attack = perSkillRates.attack;
       r.defense = perSkillRates.defense;
       r.intelligence = perSkillRates.intelligence;
@@ -227,8 +284,27 @@
       r.magic = perSkillRates.magic;
       r.ranged = perSkillRates.ranged;
       r.melee = perSkillRates.melee;
+      const eq = getEquipmentMeta();
+      const charmType = eq?.charmTypeFromCharm || null;
+      const charmKey = charmType ? (charmType.toLowerCase() === 'range' ? 'ranged' : charmType.toLowerCase()) : null;
+      if (rates) {
+        if (Number.isFinite(rates.totalPerHour)) r.total = Math.max(0, Math.round(rates.totalPerHour));
+        if (Number.isFinite(rates.primaryPerHour)) r.pRate = Math.max(0, Math.round(rates.primaryPerHour));
+      }
+      if (charmType) r.cType = charmType;
+      if (charmKey && perSkillRates && perSkillRates[charmKey] != null) {
+        r.cRate = Math.max(0, Math.round(Number(perSkillRates[charmKey] || 0)));
+      }
+      if (r.total == null) {
+        r.total = Math.max(0, Math.round(
+          ['attack','defense','intelligence','stamina','magic','ranged','melee']
+            .reduce((a,k)=>a+(Number(perSkillRates[k]||0)),0)
+        ));
+      }
+      if (r.pRate == null && r.cRate != null) {
+        r.pRate = Math.max(0, r.total - r.cRate);
+      }
       payload.meta.rates = r;
-    }
     return PLANNER_URL + '#cs=' + encodeURIComponent(JSON.stringify(payload));
   }
 
@@ -300,17 +376,17 @@
 
   function hasFiniteRates(r) {
     return !!(r && (
-      Number.isFinite(r.staminaPerHour) ||
       Number.isFinite(r.primaryPerHour) ||
-      Number.isFinite(r.totalPerHour)
+      Number.isFinite(r.totalPerHour) ||
+      Number.isFinite(r.charmPerHour)
     ));
   }
 
   /** ---------------- Site-specific behaviors ---------------- */
   const onMWI = location.hostname === 'www.milkywayidle.com';
-  const onPlanner = location.hostname === 'ignantgaming.github.io' &&
-                    location.pathname.startsWith('/MWI_XP_Planner/');
-
+  
+  // Advertise userscript presence to the planner site so it can hide the install CTA
+  if (onPlanner) { try { window.__MWIXP_INSTALLED = USERSCRIPT_VERSION; localStorage.setItem('mwixp:userscript', USERSCRIPT_VERSION); } catch {} }
   if (onMWI) {
     GM_addStyle(`
       .mwixp-fab { position: fixed; z-index: 999999; border: 0; cursor: pointer;
@@ -321,7 +397,9 @@
       #mwixp-open { top: 6px; right: 20%; background: #2d6cdf; }
       .mwixp-fab:hover { filter: brightness(1.06); }
     `);
-
+    // Ensure WS hook is active as early as possible so we catch the next message
+    try { hookWebSocketOnce(); } catch {}
+    
     // Temporary action state: after saving, show Open button for 5 minutes
     const ACTION_STATE_KEY = 'mwixp:lastActionState'; // { mode: 'open'|'save', tag?: string, until?: number }
     let mwixpRevertTimerId = null;
@@ -353,7 +431,7 @@
       if (!document.getElementById('mwixp-save')) {
         const b = document.createElement('button');
         b.id = 'mwixp-save'; b.className = 'mwixp-fab';
-        b.textContent = 'Save MWI → Tag';
+        b.textContent = 'Save MWI -> Tag';
         b.title = 'Save current combat skills to a named tag';
         b.onclick = () => doSaveSnapshot(payload);
         document.body.appendChild(b);
@@ -380,7 +458,8 @@
       const live = getLiveRates();
       payload.meta = payload.meta || {};
       payload.meta.rates = {
-        staminaPerHour: Number.isFinite(live.staminaPerHour) ? live.staminaPerHour : null,
+        charmType: live.charmType || null,
+        charmPerHour: Number.isFinite(live.charmPerHour) ? live.charmPerHour : null,
         totalPerHour: Number.isFinite(live.totalPerHour) ? live.totalPerHour : null,
         primaryPerHour: Number.isFinite(live.primaryPerHour) ? live.primaryPerHour : null,
         lastAt: live.lastAt || Date.now()
@@ -418,8 +497,8 @@
     }
 
     if (typeof GM_registerMenuCommand === 'function') {
-      GM_registerMenuCommand('Save snapshot (tag)…', () => payload && doSaveSnapshot(payload));
-      GM_registerMenuCommand('Open snapshot in planner…', doOpenTag);
+      GM_registerMenuCommand('Save snapshot (tag)��', () => payload && doSaveSnapshot(payload));
+      GM_registerMenuCommand('Open snapshot in planner��', doOpenTag);
       GM_registerMenuCommand('Copy current skills JSON', () => {
         if (!payload) return alert('No skills available.');
         const json = JSON.stringify(payload.wanted, null, 2);
@@ -428,7 +507,7 @@
         alert('Copied current combat skills JSON.');
       });
       GM_registerMenuCommand('List tags', () => alert(listTags().join('\n') || '(none)'));
-      GM_registerMenuCommand('Delete tag…', () => {
+      GM_registerMenuCommand('Delete tag��', () => {
         const tag = prompt('Tag to delete:', listTags()[0] || '');
         if (!tag) return;
         deleteSnapshot(tag);
@@ -472,22 +551,37 @@
         }
       };
       const r = snap?.meta?.rates;
-      const src = (r && (r.staminaPerHour != null || r.primaryPerHour != null || r.totalPerHour != null)) ? r : live;
+      const src = (r && (r.charmPerHour != null || r.primaryPerHour != null || r.totalPerHour != null)) ? r : live;
+      const rr = {};
       if (src) {
-        const rr = {};
-        if (Number.isFinite(src.staminaPerHour)) rr.cRate = Math.max(0, Math.round(src.staminaPerHour));
-        if (Number.isFinite(src.primaryPerHour)) rr.pRate = Math.max(0, Math.round(src.primaryPerHour));
+        if (Number.isFinite(src.primaryPerHour)) rr.pRate = Math.max(0, Math.round(src.primaryPerHour)); if (Number.isFinite(src.charmPerHour)) rr.cRate = Math.max(0, Math.round(src.charmPerHour)); if (src.charmType) rr.cType = src.charmType;
         if (Number.isFinite(src.totalPerHour)) rr.total = Math.max(0, Math.round(src.totalPerHour));
-        if (rr.cRate != null) rr.cType = 'Stamina';
-        rr.attack = perSkillRates.attack;
-        rr.defense = perSkillRates.defense;
-        rr.intelligence = perSkillRates.intelligence;
-        rr.stamina = perSkillRates.stamina;
-        rr.magic = perSkillRates.magic;
-        rr.ranged = perSkillRates.ranged;
-        rr.melee = perSkillRates.melee;
-        payload.meta.rates = rr;
       }
+      // Charm from equipment if present
+      if (savedEq?.charmTypeFromCharm) rr.cType = savedEq.charmTypeFromCharm;
+      // Always attach per-skill rates (prefer snapshot values if present)
+      rr.attack = (r && r.attack != null) ? r.attack : perSkillRates.attack;
+      rr.defense = (r && r.defense != null) ? r.defense : perSkillRates.defense;
+      rr.intelligence = (r && r.intelligence != null) ? r.intelligence : perSkillRates.intelligence;
+      rr.stamina = (r && r.stamina != null) ? r.stamina : perSkillRates.stamina;
+      rr.magic = (r && r.magic != null) ? r.magic : perSkillRates.magic;
+      rr.ranged = (r && r.ranged != null) ? r.ranged : perSkillRates.ranged;
+      rr.melee = (r && r.melee != null) ? r.melee : perSkillRates.melee;
+      // If we know cType, set cRate from matching per-skill
+      if (rr.cType) {
+        const key = rr.cType.toLowerCase() === 'range' ? 'ranged' : rr.cType.toLowerCase();
+        if (rr[key] != null) rr.cRate = Math.max(0, Math.round(Number(rr[key] || 0)));
+      }
+      // If still missing, infer cType from highest non-primary per-skill rate among known charms
+      if (!rr.cType) {
+        const candidates = ['stamina','intelligence','defense','attack'];
+        let best = null, bestV = -1;
+        for (const k of candidates) { const v = Number(rr[k] || 0); if (v > bestV) { bestV = v; best = k; } }
+        if (best && bestV > 0) { rr.cType = best === 'stamina' ? 'Stamina' : best.charAt(0).toUpperCase() + best.slice(1); rr.cRate = Math.max(0, Math.round(bestV)); }
+      }
+      // Compute pRate if missing and we have total & cRate
+      if (rr.pRate == null && rr.total != null && rr.cRate != null) rr.pRate = Math.max(0, rr.total - rr.cRate);
+      payload.meta.rates = rr;
       const newHash = '#cs=' + encodeURIComponent(JSON.stringify(payload));
       if (location.hash !== newHash) {
         history.replaceState(null, '', location.pathname + newHash);
@@ -498,3 +592,15 @@
     }
   }
 })();
+
+
+
+
+
+
+
+
+
+
+
+

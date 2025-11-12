@@ -10,13 +10,17 @@
 <body>
   <div class="row header">
     <div>
-      <h1>MWI XP Planner — Primary & Charm</h1>
+      <h1>MWI XP Planner – Primary & Charm</h1>
       <p class="muted small">
-        Enter your Primary and Charm info separately (level, XP needed, XP/hour).
-        “Target Applies To” decides which side’s goal sets the cross-projection.<br>
-        <a href="https://greasyfork.org/en/scripts/555252-mwi-xp-planner">MWI-XP-Planner</a> Add the Tamper Monkey script for easier Imports.
+        Plan and project leveling for Milky Way Idle. Enter your Primary and Charm details, set a target, and see time‑to‑next, projections, and cross‑projections. With the userscript, your current skills, equipment, and live XP/hour import automatically from the game.
       </p>
-      <a href="https://greasyfork.org/en/scripts/555252-mwi-xp-planner" target="_blank" rel="noopener noreferrer" class="small muted" style="display:inline-block;margin-top:4px;">Install userscript for easier imports</a>
+      <p class="muted small" style="margin-top:.25rem;">
+        If import looks incorrect or the Charm didn’t auto‑populate, refresh Milky Way Idle, let a battle complete, then re‑export and open the planner again.
+      </p>
+      <div class="row" style="gap:.5rem; flex-wrap:wrap; margin-top:4px;">
+        <a id="installUserscriptBtn" href="https://greasyfork.org/en/scripts/555252-mwi-xp-planner" target="_blank" rel="noopener noreferrer" class="primary-btn" style="padding:.3rem .6rem; font-size:.85rem;">Install Userscript</a>
+        <a href="https://github.com/IgnantGaming/MWI_XP_Planner#MWI_XP_Planner" target="_blank" rel="noopener noreferrer" class="small muted" style="display:inline-block; align-self:center;">Read the project guide</a>
+      </div>
     </div>
     <button id="themeBtn" class="theme-toggle" title="Toggle theme">🌙 Dark</button>
   </div>
@@ -57,9 +61,7 @@
   <!-- Primary / Charm inputs -->
   <div class="card two-col">
     <div id="primaryPanel">
-      <div class="section-title">Primary
-        <button id="primaryImportBtn" style="margin-left:.5rem;" title="Fill from imported skills">Autofill from imported</button>
-      </div>
+      <div class="section-title">Primary</div>
       <div class="grid">
         <div>
           <label for="primaryType">Class</label>
@@ -87,9 +89,7 @@
     </div>
 
     <div id="charmPanel">
-      <div class="section-title">Charm
-        <button id="charmImportBtn" style="margin-left:.5rem;" title="Fill from imported skills">Autofill from imported</button>
-      </div>
+      <div class="section-title">Charm</div>
       <div class="grid">
         <div>
           <label for="charmType">Charm</label>
@@ -138,7 +138,6 @@
     <div class="row" style="margin-top:.9rem;">
       <button class="primary-btn" id="calcBtn">Calculate</button>
       <button id="resetBtn">Reset</button>
-      <span id="status" class="muted"></span>
     </div>
   </div>
 
@@ -168,10 +167,7 @@
     </div>
   </div>
 
-  <div class="card">
-    <div class="out"><strong>From table (<code>experience.json</code>):</strong></div>
-    <div class="muted" id="tableInfo">Waiting for file load…</div>
-  </div>
+  
   <div class="row header" style="justify-content:space-between;align-items:center; margin-top: 12px;">
     <div class="small muted" id="footerVersions">
       Planner app v <span id="appVer">?</span> • Userscript v <span id="usVer">n/a</span>

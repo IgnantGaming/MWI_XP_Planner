@@ -1,5 +1,5 @@
 // ---------- THEME ----------
-const APP_VERSION = '1.2.3';
+const APP_VERSION = '1.2.0';
 const USERSCRIPT_GREASYFORK_META = 'https://update.greasyfork.org/scripts/555252/MWI%20%E2%86%92%20XP%20Planner.meta.js';
 const USERSCRIPT_GREASYFORK_PAGE = 'https://greasyfork.org/en/scripts/555252-mwi-xp-planner';
 
@@ -24,6 +24,17 @@ const USERSCRIPT_GREASYFORK_PAGE = 'https://greasyfork.org/en/scripts/555252-mwi
     apply(next);
   });
 })();
+
+// Hide Userscript CTA if the userscript is detected
+function hideUserscriptCTA() {
+  const btn = document.getElementById('installUserscriptBtn');
+  if (!btn) return;
+  try {
+    const flag = window.__MWIXP_INSTALLED || localStorage.getItem('mwixp:userscript');
+    if (flag) btn.style.display = 'none';
+  } catch {}
+}
+hideUserscriptCTA();
 
 /* ---------- Import constants & state ---------- */
 const HRID_TO_NAME = {
@@ -99,8 +110,9 @@ function setTable(data, source='fetch') {
     .map(k => parseInt(k,10))
     .filter(Number.isInteger)
     .sort((a,b)=>a-b);
-  els.status.textContent = `experience.json loaded (${source})`;
-  els.tableInfo.textContent = 'Enter values above to see per-level deltas.';
+  if (els.status) els.status.textContent = `experience.json loaded (${source})`;
+  // tableInfo removed from UI; keep silent if missing
+  if (els.tableInfo) els.tableInfo.textContent = 'Enter values above to see per-level deltas.';
 
   // If imports exist, render and then apply equipment/rates before autofill
   if (importedSkills) {
@@ -108,6 +120,7 @@ function setTable(data, source='fetch') {
     applyImportedEquipment();
     applyImportedRates();
     autofillFromImported();
+    setDefaultTargetFromCharm();
     calculate();
   }
   // footer versions
@@ -281,6 +294,22 @@ function applyImportedEquipment() {
     const exists = Array.from(els.charmType.options || []).some(o => o.value === charmT || o.textContent === charmT);
     if (exists) els.charmType.value = charmT;
   }
+}
+
+// Set default target settings based on detected Charm
+function setDefaultTargetFromCharm() {
+  try {
+    // Only apply when we have a Charm selected and a valid level present
+    const charmName = els.charmType?.value;
+    const level = parseInt(els.charmLevel?.value, 10);
+    if (!charmName || !Number.isInteger(level) || level < 1) return;
+    // Apply target applies to Charm
+    if (els.targetApplies) els.targetApplies.value = 'charm';
+    // Next multiple of 5, but if already multiple of 5, go up to the next bracket (+5)
+    let target = Math.ceil(level / 5) * 5;
+    if (level % 5 === 0) target = level + 5;
+    if (els.targetLevel) els.targetLevel.value = String(target);
+  } catch {}
 }
 
 // Footer helpers: attempt to show userscript version even without import meta
@@ -558,9 +587,9 @@ function calculate() {
     if (Number.isInteger(cl) && cd != null) {
       html += `Charm next level (${cl+1}) requires <strong>${cd.toLocaleString()}</strong> XP.`;
     }
-    els.tableInfo.innerHTML = html || 'Enter levels to see per-level deltas.';
+    if (els.tableInfo) els.tableInfo.innerHTML = html || 'Enter levels to see per-level deltas.';
   } else {
-    els.tableInfo.textContent = 'experience.json not loaded.';
+    if (els.tableInfo) els.tableInfo.textContent = 'experience.json not loaded.';
   }
 
   const P = calcSide('p');
@@ -671,7 +700,7 @@ els.resetBtn.addEventListener('click', () => {
   els.c_crossNote.textContent = '';
   els.primaryPanel.classList.remove('panel-focus');
   els.charmPanel.classList.remove('panel-focus');
-  els.tableInfo.textContent = 'Waiting for file load…';
+  if (els.tableInfo) els.tableInfo.textContent = 'Waiting for file load…';
 });
 
 // Try to import data from hash or prior session before first calculate
@@ -685,6 +714,7 @@ window.addEventListener('load', () => {
     applyImportedEquipment();
     applyImportedRates();
     autofillFromImported();
+    setDefaultTargetFromCharm();
   }
   setTimeout(calculate, 50);
 });
