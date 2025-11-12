@@ -6,6 +6,7 @@
 // @description  Save combat-skill snapshots with tags; open them on your GitHub planner.
 // @match        http://localhost:8080/*
 // @match        https://www.milkywayidle.com/*
+// @match        https://milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
 // @match        https://www.milkywayidlecn.com/*
 // @match        https://test.milkywayidlecn.com/*
@@ -383,8 +384,9 @@ function hookWebSocketOnce() {
   }
 
   /** ---------------- Site-specific behaviors ---------------- */
-  const onMWI = location.hostname === 'www.milkywayidle.com';
-  
+  const onMWI = (location.hostname === 'www.milkywayidle.com' || location.hostname === 'milkywayidle.com' || location.hostname === 'test.milkywayidle.com' || location.hostname === 'www.milkywayidlecn.com' || location.hostname === 'milkywayidlecn.com' || location.hostname === 'test.milkywayidlecn.com');
+  const onPlanner = ((location.hostname === 'ignantgaming.github.io' && location.pathname.startsWith('/MWI_XP_Planner/')) || location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+
   // Advertise userscript presence to the planner site so it can hide the install CTA
   if (onPlanner) { try { window.__MWIXP_INSTALLED = USERSCRIPT_VERSION; localStorage.setItem('mwixp:userscript', USERSCRIPT_VERSION); } catch {} }
   if (onMWI) {
@@ -426,14 +428,12 @@ function hookWebSocketOnce() {
       }
     }
 
-    function ensureButtons(payload) {
-      if (!payload) return;
-      if (!document.getElementById('mwixp-save')) {
+    function ensureButtons(payload) {      if (!document.getElementById('mwixp-save')) {
         const b = document.createElement('button');
         b.id = 'mwixp-save'; b.className = 'mwixp-fab';
         b.textContent = 'Save MWI -> Tag';
         b.title = 'Save current combat skills to a named tag';
-        b.onclick = () => doSaveSnapshot(payload);
+        b.onclick = () => { let p = extractFromInitCharacterData() || extractLegacyCharacterSkills(); if (!p) { alert('No init_character_data or characterSkills found yet. Try after loading the game UI or starting a battle.'); return; } doSaveSnapshot(p); };
         document.body.appendChild(b);
       }
       if (!document.getElementById('mwixp-open')) {
@@ -497,7 +497,7 @@ function hookWebSocketOnce() {
     }
 
     if (typeof GM_registerMenuCommand === 'function') {
-      GM_registerMenuCommand('Save snapshot (tag)��', () => payload && doSaveSnapshot(payload));
+      GM_registerMenuCommand('Save snapshot (tag)', () => { let p = extractFromInitCharacterData() || extractLegacyCharacterSkills(); if (!p) { alert('No init_character_data or characterSkills found.'); return; } doSaveSnapshot(p); });
       GM_registerMenuCommand('Open snapshot in planner��', doOpenTag);
       GM_registerMenuCommand('Copy current skills JSON', () => {
         if (!payload) return alert('No skills available.');
