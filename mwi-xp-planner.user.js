@@ -17,7 +17,7 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @license      CC-BY-NC-SA-4.0
-// @run-at       document-start                          
+// @run-at       document-start
 // @downloadURL https://update.greasyfork.org/scripts/555252/MWI%20%E2%86%92%20XP%20Planner.user.js
 // @updateURL https://update.greasyfork.org/scripts/555252/MWI%20%E2%86%92%20XP%20Planner.meta.js
 // ==/UserScript==
@@ -146,7 +146,6 @@
       const keys = new Set([...Object.keys(instPerSkill), ...Object.keys(nextPerSkill)]);
       keys.forEach((key) => { blended[key] = Math.max(instPerSkill[key] || 0, nextPerSkill[key] || 0); });
       usePerSkill = blended;
-      
     }
 
     // Determine current charm skill/type
@@ -174,7 +173,6 @@
     mwixpRates.charmPerHour = Math.round(charmPerHour);
     mwixpRates.charmType = charmType || (charmKey ? (charmKey === 'ranged' ? 'Range' : charmKey.charAt(0).toUpperCase() + charmKey.slice(1)) : null);
     mwixpRates.lastAt = Date.now();
-    
 
     // Track last sample (per battle series)
     lastBattleStart = nowStart;
@@ -401,7 +399,7 @@ function hookWebSocketOnce() {
     `);
     // Ensure WS hook is active as early as possible so we catch the next message
     try { hookWebSocketOnce(); } catch {}
-    
+
     // Temporary action state: after saving, show Open button for 5 minutes
     const ACTION_STATE_KEY = 'mwixp:lastActionState'; // { mode: 'open'|'save', tag?: string, until?: number }
     let mwixpRevertTimerId = null;
@@ -498,7 +496,7 @@ function hookWebSocketOnce() {
 
     if (typeof GM_registerMenuCommand === 'function') {
       GM_registerMenuCommand('Save snapshot (tag)', () => { let p = extractFromInitCharacterData() || extractLegacyCharacterSkills(); if (!p) { alert('No init_character_data or characterSkills found.'); return; } doSaveSnapshot(p); });
-      GM_registerMenuCommand('Open snapshot in planner��', doOpenTag);
+      GM_registerMenuCommand('Open snapshot in planner', doOpenTag);
       GM_registerMenuCommand('Copy current skills JSON', () => {
         if (!payload) return alert('No skills available.');
         const json = JSON.stringify(payload.wanted, null, 2);
@@ -507,7 +505,7 @@ function hookWebSocketOnce() {
         alert('Copied current combat skills JSON.');
       });
       GM_registerMenuCommand('List tags', () => alert(listTags().join('\n') || '(none)'));
-      GM_registerMenuCommand('Delete tag��', () => {
+      GM_registerMenuCommand('Delete tag', () => {
         const tag = prompt('Tag to delete:', listTags()[0] || '');
         if (!tag) return;
         deleteSnapshot(tag);
@@ -592,15 +590,3 @@ function hookWebSocketOnce() {
     }
   }
 })();
-
-
-
-
-
-
-
-
-
-
-
-
